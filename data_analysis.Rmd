@@ -1,0 +1,41 @@
+---
+title: "Marine-Fishing-Project"
+output: html_document
+---
+
+```{r message = FALSE}
+
+library(StrathE2E2)
+model <- e2e_read("North_Sea", "1970-1999")
+results <- e2e_run(model,nyears=15)
+
+```
+
+```{r}
+
+harvest_ratio_data <- e2e_extract_hr(model,results)
+
+print(harvest_ratio_data$Whole_domain_harvest_ratio)
+
+```
+
+```{r results='hide'}
+
+Activity <- model$data$fleet.model$gear_activity
+Power <- model$data$fleet.model$gear_group_rel_power
+
+HR = Power * Activity
+
+
+if_single_value <- function(guild) {
+  if (sum( guild != 0) == 1 ) {
+  which( guild != 0 )
+} else {
+  print("FALSE")
+}
+}
+
+col_num <- 8
+if_single_value(HR[, col_num])
+
+```
