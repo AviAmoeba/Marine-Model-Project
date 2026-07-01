@@ -14,28 +14,98 @@ results <- e2e_run(model,nyears=15)
 ```{r}
 
 harvest_ratio_data <- e2e_extract_hr(model,results)
-
 print(harvest_ratio_data$Whole_domain_harvest_ratio)
 
 ```
 
-```{r results='hide'}
+```{r}
+
+#target_HR = c[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
 Activity <- model$data$fleet.model$gear_activity
 Power <- model$data$fleet.model$gear_group_rel_power
+# Power_m <- as.matrix(Power)
+# 
+# HR <- Activity * Power
+# HR_m <-  Activity %*% Power_m
 
-HR = Power * Activity
 
 
-if_single_value <- function(guild) {
-  if (sum( guild != 0) == 1 ) {
-  which( guild != 0 )
-} else {
-  print("FALSE")
+
+extract_nonzero_power <- function(Power) {
+  
+  # ensure matrix
+  Power <- as.matrix(Power)
+  
+  # find non-zero entries
+  idx <- which(Power != 0, arr.ind = TRUE)
+  
+  # build data frame
+  df <- data.frame(
+    Columns = idx[, 2],
+    Indexes = idx[, 1],
+    Values  = Power[idx]
+  )
+  
+  return(df)
 }
+
+
+
+extract_single_occurrence_columns <- function(df) {
+  
+  # count how many times each column appears
+  col_counts <- table(df$Columns)
+  
+  # find columns that appear exactly once
+  single_cols <- names(col_counts[col_counts == 1])
+  
+  # filter original data frame
+  result <- df[df$Columns %in% as.numeric(single_cols), ]
+  
+  return(result)
 }
 
-col_num <- 8
-if_single_value(HR[, col_num])
+
+normalize_by_group_max <- function(df) {
+  
+  # get max per column group
+  max_vals <- tapply(df$Values, df$Columns, max)
+  
+  # map max back to each row
+  df$MaxValue <- max_vals[as.character(df$Columns)]
+  
+  # normalize
+  df$Normalized <- df$MaxValue / df$Values
+  
+  return(df)
+}
+
+
+df <- extract_nonzero_power(Power)
+result <- extract_single_occurrence_columns(df)
+df <- normalize_by_group_max(df)
+
+
+print(df)
 
 ```
+
+
+```{r}
+
+
+cosine_similarity <- function(x, y) {
+  norm_x <- sqrt(sum(x^2))
+  norm_y <- sqrt(sum(y^2))
+  
+  sum(x * y) / (norm_x * norm_y)
+}
+
+
+
+print(cosine_similarity(c(1,0), c(-1, 0)))
+
+```
+
+
