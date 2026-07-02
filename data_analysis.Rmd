@@ -3,33 +3,36 @@ title: "Marine-Fishing-Project"
 output: html_document
 ---
 
+results = 'hide'
+
 ```{r message = FALSE}
 
 library(StrathE2E2)
-model <- e2e_read("North_Sea", "1970-1999")
-results <- e2e_run(model,nyears=15)
+model <- e2e_read("North_Sea","2003-2013")
+results <- e2e_run(model,nyears=3)
 
 ```
 
 ```{r}
 
-harvest_ratio_data <- e2e_extract_hr(model,results)
-print(harvest_ratio_data$Whole_domain_harvest_ratio)
-
-```
-
-```{r}
-
-#target_HR = c[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+target_HR <- c(0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5)
 
 Activity <- model$data$fleet.model$gear_activity
 Power <- model$data$fleet.model$gear_group_rel_power
+Activity_Mult <- model$data$fleet.model$gear_mult
+
+
 # Power_m <- as.matrix(Power)
 # 
 # HR <- Activity * Power
 # HR_m <-  Activity %*% Power_m
 
 
+harvest_ratio_data <- e2e_extract_hr(model,results)
+
+```
+
+```{r}
 
 
 extract_nonzero_power <- function(Power) {
@@ -42,9 +45,9 @@ extract_nonzero_power <- function(Power) {
   
   # build data frame
   df <- data.frame(
-    Columns = idx[, 2],
-    Indexes = idx[, 1],
-    Values  = Power[idx]
+    Guild = idx[, 2],
+    Gear = idx[, 1],
+    Power_Value  = Power[idx]
   )
   
   return(df)
@@ -55,42 +58,291 @@ extract_nonzero_power <- function(Power) {
 extract_single_occurrence_columns <- function(df) {
   
   # count how many times each column appears
-  col_counts <- table(df$Columns)
+  col_counts <- table(df$Guild)
   
   # find columns that appear exactly once
   single_cols <- names(col_counts[col_counts == 1])
   
   # filter original data frame
-  result <- df[df$Columns %in% as.numeric(single_cols), ]
+  result <- df[df$Guild %in% as.numeric(single_cols), ]
   
   return(result)
+}
+
+
+
+edit_lone_activity <- function(result, target_HR, harvest_ratio_data, target_Activity) {
+  
+  idx <- result$Guild
+  idy <- result$Gear
+  
+  target_Activity[idy] <- target_HR[idx] / harvest_ratio_data$Whole_domain_harvest_ratio[idx]
+  
+  return(target_Activity)
+}
+
+############################## NEED TO FIX
+modify_specific_gear_targer_HR <- function(df, result, target_HR, model, results) {
+  
+  tempmodel <- model
+  
+  for (i in 1:length(result$Gear)) {
+    v <- rep(0, 12)
+    v[result$Gear[i]] <- 1
+    
+    tempmodel$data$fleet.model$gear_mult <- v
+    harvest_ratio_data <- e2e_extract_hr(tempmodel,results)
+    
+    c <- df$guild[df$gear == result$Gear]
+    target_HR[c] <- target_HR[c] - harvest_ratio_data$Whole_domain_harvest_ratio[c]
+    
+  }
+  return(target_HR)
+}
+#########################################
+
+
+filter_specific_gear <- function(df, result) {
+  idx <- result$Gear
+  df <- df[!(df$Gear %in% idx), ]
+  return(df)
 }
 
 
 normalize_by_group_max <- function(df) {
   
   # get max per column group
-  max_vals <- tapply(df$Values, df$Columns, max)
+  max_vals <- tapply(df$Power_Value, df$Guild, max)
   
   # map max back to each row
-  df$MaxValue <- max_vals[as.character(df$Columns)]
+  df$MaxValue <- max_vals[as.character(df$Guild)]
   
-  # normalize
-  df$Normalized <- df$MaxValue / df$Values
+  # normalize (maxP/currentP)
+  df$Normalized <- df$MaxValue / df$Power_Value
   
   return(df)
 }
 
 
-df <- extract_nonzero_power(Power)
-result <- extract_single_occurrence_columns(df)
-df <- normalize_by_group_max(df)
 
 
-print(df)
 
 ```
 
+```{r}
+
+F_calc_func<-function(basemodel,dataset){
+  
+  model<-basemodel
+  fishing_fleet_model<-StrathE2E2:::fishing_fleet_model
+  
+  shallowprop<-sum(model$data$physical.parameters$habitat_areas[1:4])
+  deepprop_exOH<-sum(model$data$physical.parameters$habitat_areas[5:8])
+  
+  grouplabels <- c(
+    "Planktivorous_fish",
+    "Demersal_fish",
+    "Migratory_fish",
+    "Benthos_susp-dep",
+    "Benthos_carn-scav",
+    "Zooplankton_carn",
+    "Birds",
+    "Pinnipeds",
+    "Cetaceans",
+    "Macrophytes"
+  )
+  
+  fleet_object <- fishing_fleet_model(model,2)
+  
+  fleet_vector	<- fleet_object$fleet_vector
+  
+  zonalHRs<-data.frame(Guilds=grouplabels,Inshore_harvest_ratio=rep(0,length(grouplabels)),Offshore_harvest_ratio=rep(0,length(grouplabels)),Whole_domain_harvest_ratio=rep(0,length(grouplabels)))
+  
+  zonalHRs$Inshore_harvest_ratio<-c(fleet_vector["F_inshore_pelagic"],
+                                    fleet_vector["F_inshore_demersal"],
+                                    fleet_vector["F_inshore_migratory"],
+                                    fleet_vector["F_inshore_filtben"],
+                                    fleet_vector["F_inshore_carnben"],
+                                    fleet_vector["F_inshore_carnzoo"],
+                                    fleet_vector["F_inshore_bird"],
+                                    fleet_vector["F_inshore_seal"],
+                                    fleet_vector["F_inshore_ceta"],
+                                    fleet_vector["F_inshore_kelp"])
+  
+  zonalHRs$Offshore_harvest_ratio<-c(fleet_vector["F_offshore_pelagic"],
+                                     fleet_vector["F_offshore_demersal"],
+                                     fleet_vector["F_offshore_migratory"],
+                                     fleet_vector["F_offshore_filtben"],
+                                     fleet_vector["F_offshore_carnben"],
+                                     fleet_vector["F_offshore_carnzoo"],
+                                     fleet_vector["F_offshore_bird"],
+                                     fleet_vector["F_offshore_seal"],
+                                     fleet_vector["F_offshore_ceta"],
+                                     fleet_vector["F_offshore_kelp"])
+  
+  zonalHRs$Whole_domain_harvest_ratio[c(1,2,3,6,7,8,9)]<- (zonalHRs$Inshore_harvest_ratio[c(1,2,3,6,7,8,9)]*shallowprop) + (zonalHRs$Offshore_harvest_ratio[c(1,2,3,6,7,8,9)]*(1-shallowprop))
+  zonalHRs$Whole_domain_harvest_ratio[c(4,5,10)]<- ((zonalHRs$Inshore_harvest_ratio[c(4,5,10)]*shallowprop) + (zonalHRs$Offshore_harvest_ratio[c(4,5,10)]*(deepprop_exOH)))/(shallowprop+deepprop_exOH)
+  
+  return(zonalHRs)
+  
+}
+
+
+
+```
+
+```{r}
+
+
+df <- extract_nonzero_power(Power)
+
+arg <- TRUE
+while (arg == TRUE) {
+  result <- extract_single_occurrence_columns(df)
+  if (nrow(result) == 0) {
+    arg <- FALSE
+  }
+  else {
+    new_gear_mults <- edit_lone_activity(result, target_HR, harvest_ratio_data, Activity_Mult)
+    # target_HR <- modify_specific_gear_targer_HR(df, result, target_HR, model, results)
+    df <- filter_specific_gear(df, result)
+  }
+}
+
+
+
+baseHRs <- F_calc_func(model)
+
+newmodel <- model
+
+newmodel$data$fleet.model$gear_mult <- new_gear_mults
+newHRs <- F_calc_func(newmodel)
+
+print(newHRs$Whole_domain_harvest_ratio)
+
+
+
+```
+
+```{r}
+
+new_gear_mults[5] <- 1
+new_gear_mults[6] <- 0
+new_gear_mults[9] <- 0
+
+newmodel$data$fleet.model$gear_mult <- new_gear_mults
+newHRs <- F_calc_func(newmodel)
+
+print(newHRs$Whole_domain_harvest_ratio)
+
+
+new_gear_mults[5] <- 0
+new_gear_mults[6] <- 1
+new_gear_mults[9] <- 0
+
+newmodel$data$fleet.model$gear_mult <- new_gear_mults
+newHRs <- F_calc_func(newmodel)
+
+print(newHRs$Whole_domain_harvest_ratio)
+
+new_gear_mults[5] <- 0
+new_gear_mults[6] <- 0
+new_gear_mults[9] <- 1
+
+newmodel$data$fleet.model$gear_mult <- new_gear_mults
+newHRs <- F_calc_func(newmodel)
+
+print(newHRs$Whole_domain_harvest_ratio)
+
+
+
+```
+
+```{r}
+
+# rows <- list()
+# k <- 1
+# for (j in seq_along(Power)) {
+#   col <- Power[[j]]
+# 
+#   for (i in seq_along(col)) {
+#     if (col[i] != 0) {
+#       rows[[k]] <- data.frame(
+#         Columns = j,
+#         Indexes = i,
+#         Values = col[i]
+#       )
+#       k <- k + 1
+#     }
+#   }
+# }
+# 
+# df <- do.call(rbind, rows)
+
+
+# 
+# df <- data.frame("Columns, Indexs, Values")
+# col_search <- lapply(Power, function(col) {
+#   row <- numeric()
+#   for (i in 1:length(col)) {
+#     if (col[i] != 0) {
+#       row <- c(row, which(col), i, col[i])
+#       df <- rbind(df, row)
+#     }
+# }
+
+
+# 
+# col_search <- function(col, P_values) {
+#   my_list <- list()
+#   
+#   for (i in 1:length(col)) {
+#     if (col[i] != 0) {
+#       lis <- list(i, col[i])
+#       my_list <- append(my_list, list(lis))
+#     }
+#   }
+#   
+#   append(P_values, my_list)
+# }
+
+# P_values <- list()
+# 
+# result <- lapply(Power, col_search, P_values = P_values)
+# 
+# print(Power)
+# print(result)
+
+
+
+#col_search_2 <- function(col, col_id) {
+#  data.frame(
+#    column = col_id,
+#    index = which(col != 0),
+#    value = col[col != 0]
+#  )
+#}
+
+#result <- do.call(rbind, lapply(seq_along(Power), function(i) {
+#  col_search_2(Power[[i]], i)
+#}))
+
+#print(result)
+
+
+#if_single_value <- function(guild) {
+#  if (sum(guild != 0) == 1) {
+#    return(guild[guild != 0])
+#  } else {
+#    return(NA)
+#  }
+#}
+
+#target_A <- apply(HR, 2, if_single_value)
+
+#print(target_A)
+
+```
 
 ```{r}
 
@@ -103,9 +355,4 @@ cosine_similarity <- function(x, y) {
 }
 
 
-
-print(cosine_similarity(c(1,0), c(-1, 0)))
-
 ```
-
-
