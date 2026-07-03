@@ -3,15 +3,13 @@ title: "Marine-Model-Project"
 output: html_document
 ---
 
-```
+```         
 
 The Harvest Ratio is the proportion of instantaneous biomass captured per unit time. It is calculated by both Activity and Power of the fishing gear.
 
 The initial Goal of the project was to create a program that calculates the required Activity multiplier for a specific input target harvest ratio.
 
-
 ```
-
 
 ```{r setup, message = FALSE}
 
@@ -106,8 +104,6 @@ F_calc_func <- function(basemodel,dataset) {
 
 ```
 
-
-
 ```{r}
 
 
@@ -131,7 +127,7 @@ extract_nonzero_power <- function(Power) {
 
 
 
-extract_single_occurrence_columns <- function(df) {
+extract_single_guild_occurrence <- function(df) {
   
   # count how many times each column appears
   col_counts <- table(df$Guild)
@@ -147,7 +143,7 @@ extract_single_occurrence_columns <- function(df) {
 
 
 
-edit_lone_activity <- function(result, target_HR, harvest_ratio_data, target_Activity) {
+edit_single_activity <- function(result, target_HR, harvest_ratio_data, target_Activity) {
   
   idx <- result$Guild
   idy <- result$Gear
@@ -157,25 +153,25 @@ edit_lone_activity <- function(result, target_HR, harvest_ratio_data, target_Act
   return(target_Activity)
 }
 
-############################## NEED TO FIX
+
 modify_specific_gear_targer_HR <- function(df, result, target_HR, model, results) {
   
   tempmodel <- model
   
-  for (i in 1:length(result$Gear)) {
+  for (i in seq_along(length(result$Gear))) {
     v <- rep(0, 12)
     v[result$Gear[i]] <- 1
-    
+
     tempmodel$data$fleet.model$gear_mult <- v
     harvest_ratio_data <- e2e_extract_hr(tempmodel,results)
     
-    c <- df$guild[df$gear == result$Gear]
-    target_HR[c] <- target_HR[c] - harvest_ratio_data$Whole_domain_harvest_ratio[c]
+    guild_idx <- df$Guild[df$Gear == result$Gear[i]]
+
+    target_HR[guild_idx] <- target_HR[guild_idx] - harvest_ratio_data$Whole_domain_harvest_ratio[guild_idx]
     
   }
   return(target_HR)
 }
-#########################################
 
 
 filter_specific_gear <- function(df, result) {
@@ -212,13 +208,13 @@ df <- extract_nonzero_power(Power)
 
 arg <- TRUE
 while (arg == TRUE) {
-  result <- extract_single_occurrence_columns(df)
+  result <- extract_single_guild_occurrence(df)
   if (nrow(result) == 0) {
     arg <- FALSE
   }
   else {
-    new_gear_mults <- edit_lone_activity(result, target_HR, harvest_ratio_data, Activity_Mult)
-    # target_HR <- modify_specific_gear_targer_HR(df, result, target_HR, model, results)   NEED TO FIX
+    new_gear_mults <- edit_single_activity(result, target_HR, harvest_ratio_data, Activity_Mult)
+    target_HR <- modify_specific_gear_targer_HR(df, result, target_HR, model, results)
     df <- filter_specific_gear(df, result)
   }
 }
