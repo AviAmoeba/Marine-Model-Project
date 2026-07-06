@@ -19,17 +19,20 @@ library(StrathE2E2)
 model <- e2e_read("North_Sea","2003-2013")
 results <- e2e_run(model,nyears=3)
 
+# library(rootSolve)
+library(lpSolve)
+
 source("functions.R")
 
 ```
 
 ```{r}
 
-target_HR <- c(0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05)
+Target_Harvest_Ratio <- c(0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05)
 
 Activity <- model$data$fleet.model$gear_activity
 Power <- model$data$fleet.model$gear_group_rel_power
-Activity_Mult <- model$data$fleet.model$gear_mult
+Activity_Multiplier <- model$data$fleet.model$gear_mult
 
 
 # Power_m <- as.matrix(Power)
@@ -38,7 +41,7 @@ Activity_Mult <- model$data$fleet.model$gear_mult
 # HR_m <-  Activity %*% Power_m
 
 
-harvest_ratio_data <- e2e_extract_hr(model,results)
+Harvest_Ratio <- e2e_extract_hr(model,results)
 # HR <- F_calc_func(model, results)
 
 
@@ -106,82 +109,95 @@ F_calc_func <- function(basemodel,dataset) {
 
 ```{r}
 
-
-extract_nonzero_power <- function(Power) {
+# Extracts all non-zero entries in the power data frame
+extract_nonzero_power <- function(power_data_frame) {
   
-  # ensure matrix
-  Power <- as.matrix(Power)
+  # ensures power is a matrix
+  power_matrix <- as.matrix(power_data_frame)
   
-  # find non-zero entries
-  idx <- which(Power != 0, arr.ind = TRUE)
+  # find non-zero entries, idx = index
+  idx <- which(power_matrix != 0, arr.ind = TRUE)
   
-  # build data frame
+  # builds the data frame, df = data frame
   df <- data.frame(
     Guild = idx[, 2],
     Gear = idx[, 1],
-    Power_Value  = Power[idx]
+    Power_Value = power_matrix[idx]
   )
   
   return(df)
 }
 
 
-
 extract_single_guild_occurrence <- function(df) {
   
   # count how many times each column appears
-  col_counts <- table(df$Guild)
+  guild_counts <- table(df$Guild)
   
   # find columns that appear exactly once
-  single_cols <- names(col_counts[col_counts == 1])
+  single_guild <- names(guild_counts[guild_counts == 1])
   
   # filter original data frame
-  result <- df[df$Guild %in% as.numeric(single_cols), ]
+  single_guild_df <- df[df$Guild %in% as.numeric(single_guild), ]
   
-  return(result)
+  return(single_guild_df)
 }
 
 
-
-edit_single_activity <- function(result, target_HR, harvest_ratio_data, target_Activity) {
+edit_single_activity_multiplier <- function(single_guild_df, target_HR, harvest_ratio_data, target_Activity) {
   
-  idx <- result$Guild
-  idy <- result$Gear
+  index_guild <- single_guild_df$Guild
+  index_gear <- single_guild_df$Gear
   
-  target_Activity[idy] <- target_HR[idx] / harvest_ratio_data$Whole_domain_harvest_ratio[idx]
+  target_Activity[index_gear] <- target_HR[index_guild] / harvest_ratio_data$Whole_domain_harvest_ratio[index_guild]
   
   return(target_Activity)
 }
 
 
-modify_specific_gear_targer_HR <- function(df, result, target_HR, model, results) {
+find_HR_components <- function(target_activity, model) {
   
-  tempmodel <- model
+  temp_model <- model
   
-  for (i in seq_along(length(result$Gear))) {
-    v <- rep(0, 12)
-    v[result$Gear[i]] <- 1
+  temp_activity <- rep(0, 12)
+  temp_activity[target_activity] <- 1
+  
+  temp_model$data$fleet.model$gear_mult <- temp_activity
+  temp_results <- e2e_run(temp_model,nyears=3)
+  harvest_ratio_component <- e2e_extract_hr(temp_model,temp_results)
+  
+  return(harvest_ratio_component)
+}
 
-    tempmodel$data$fleet.model$gear_mult <- v
-    harvest_ratio_data <- e2e_extract_hr(tempmodel,results)
+
+
+#########################
+modify_targer_HR <- function(df, single_guild_df, target_HR, model) {
+  
+  
+  for (i in seq_along(length(single_guild_df$Gear))) {
+   
+    harvest_ratio_data <- find_HR_components(single_guild_df$Gear[i], model)
     
-    guild_idx <- df$Guild[df$Gear == result$Gear[i]]
+    guild_idx <- df$Guild[df$Gear == single_guild_df$Gear[i]]
 
     target_HR[guild_idx] <- target_HR[guild_idx] - harvest_ratio_data$Whole_domain_harvest_ratio[guild_idx]
     
   }
   return(target_HR)
 }
+############################
 
 
-filter_specific_gear <- function(df, result) {
-  idx <- result$Gear
-  df <- df[!(df$Gear %in% idx), ]
+
+filter_gear <- function(df, filter_df) {
+  df <- df[!(df$Gear %in% filter_df), ]
   return(df)
 }
 
 
-normalize_by_group_max <- function(df) {
+
+normalize_power_by_group_max <- function(df) {
   
   # get max per column group
   max_vals <- tapply(df$Power_Value, df$Guild, max)
@@ -197,29 +213,41 @@ normalize_by_group_max <- function(df) {
 
 
 
+find_simultaneous_equations <- function(df) {
+  
+  unique_sorted <- sort(unique(df$Gear))
+  
+  res_list <- lapply(unique_sorted, function(v) {
+    out <- find_HR_components(v, model)
+    out$Whole_domain_harvest_ratio
+  })
+
+  
+  mat <- do.call(cbind, res_list)
+  
+  return(mat)
+}
 
 
 ```
 
-```{r}
+```{r include=FALSE}
+
 
 
 df <- extract_nonzero_power(Power)
 
-arg <- TRUE
-while (arg == TRUE) {
-  result <- extract_single_guild_occurrence(df)
-  if (nrow(result) == 0) {
-    arg <- FALSE
+repeat {
+  single_guild_df <- extract_single_guild_occurrence(df)
+
+  if (nrow(single_guild_df) == 0) {
+    break
   }
-  else {
-    new_gear_mults <- edit_single_activity(result, target_HR, harvest_ratio_data, Activity_Mult)
-    target_HR <- modify_specific_gear_targer_HR(df, result, target_HR, model, results)
-    df <- filter_specific_gear(df, result)
-  }
+  
+  new_gear_mults <- edit_single_activity_multiplier(single_guild_df, Target_Harvest_Ratio, Harvest_Ratio, Activity_Multiplier)
+  Target_Harvest_Ratio <- modify_targer_HR(df, single_guild_df, Target_Harvest_Ratio, model)
+  df <- filter_gear(df, single_guild_df)
 }
-
-
 
 baseHRs <- F_calc_func(model, results)
 
@@ -229,7 +257,7 @@ newmodel$data$fleet.model$gear_mult <- new_gear_mults
 results <- e2e_run(model,nyears=3)
 newHRs <- F_calc_func(newmodel, results)
 print(df)
-#print(newHRs$Whole_domain_harvest_ratio)
+print(newHRs$Whole_domain_harvest_ratio)
 
 
 
@@ -237,133 +265,107 @@ print(df)
 
 ```{r results = 'hide'}
 
-new_gear_mults[5] <- 1
-new_gear_mults[6] <- 0
-new_gear_mults[9] <- 0
-
-newmodel$data$fleet.model$gear_mult <- new_gear_mults
-newHRs <- F_calc_func(newmodel)
-
-print(newHRs$Whole_domain_harvest_ratio)
-
-
-new_gear_mults[5] <- 0
-new_gear_mults[6] <- 1
-new_gear_mults[9] <- 0
-
-newmodel$data$fleet.model$gear_mult <- new_gear_mults
-newHRs <- F_calc_func(newmodel)
-
-print(newHRs$Whole_domain_harvest_ratio)
-
-new_gear_mults[5] <- 0
-new_gear_mults[6] <- 0
-new_gear_mults[9] <- 1
-
-newmodel$data$fleet.model$gear_mult <- new_gear_mults
-newHRs <- F_calc_func(newmodel)
-
-print(newHRs$Whole_domain_harvest_ratio)
-
-
-
 ```
 
-```{r}
+```{r include=FALSE}
 
-# rows <- list()
-# k <- 1
-# for (j in seq_along(Power)) {
-#   col <- Power[[j]]
-# 
-#   for (i in seq_along(col)) {
-#     if (col[i] != 0) {
-#       rows[[k]] <- data.frame(
-#         Columns = j,
-#         Indexes = i,
-#         Values = col[i]
-#       )
-#       k <- k + 1
-#     }
-#   }
-# }
-# 
-# df <- do.call(rbind, rows)
+Activity_Finished = c()
 
+df <- extract_nonzero_power(Power)
 
-# 
-# df <- data.frame("Columns, Indexs, Values")
-# col_search <- lapply(Power, function(col) {
-#   row <- numeric()
-#   for (i in 1:length(col)) {
-#     if (col[i] != 0) {
-#       row <- c(row, which(col), i, col[i])
-#       df <- rbind(df, row)
-#     }
-# }
+repeat {
+  single_guild_df <- extract_single_guild_occurrence(df)
 
-
-# 
-# col_search <- function(col, P_values) {
-#   my_list <- list()
-#   
-#   for (i in 1:length(col)) {
-#     if (col[i] != 0) {
-#       lis <- list(i, col[i])
-#       my_list <- append(my_list, list(lis))
-#     }
-#   }
-#   
-#   append(P_values, my_list)
-# }
-
-# P_values <- list()
-# 
-# result <- lapply(Power, col_search, P_values = P_values)
-# 
-# print(Power)
-# print(result)
-
-
-
-#col_search_2 <- function(col, col_id) {
-#  data.frame(
-#    column = col_id,
-#    index = which(col != 0),
-#    value = col[col != 0]
-#  )
-#}
-
-#result <- do.call(rbind, lapply(seq_along(Power), function(i) {
-#  col_search_2(Power[[i]], i)
-#}))
-
-#print(result)
-
-
-#if_single_value <- function(guild) {
-#  if (sum(guild != 0) == 1) {
-#    return(guild[guild != 0])
-#  } else {
-#    return(NA)
-#  }
-#}
-
-#target_A <- apply(HR, 2, if_single_value)
-
-#print(target_A)
-
-```
-
-```{r}
-
-
-cosine_similarity <- function(x, y) {
-  norm_x <- sqrt(sum(x^2))
-  norm_y <- sqrt(sum(y^2))
+  if (nrow(single_guild_df) == 0) {
+    break
+  }
   
-  sum(x * y) / (norm_x * norm_y)
+  Activity_Finished <- c(Activity_Finished, single_guild_df$Gear)
+  new_gear_mults <- edit_single_activity_multiplier(single_guild_df, Target_Harvest_Ratio, Harvest_Ratio, Activity_Multiplier)
+  Target_Harvest_Ratio <- modify_targer_HR(df, single_guild_df, Target_Harvest_Ratio, model)
+  df <- filter_gear(df, single_guild_df$Gear)
 }
 
+new_gear_mults <- edit_single_activity_multiplier(single_guild_df, Target_Harvest_Ratio, Harvest_Ratio, Activity_Multiplier)
+
+
+
+```
+
+```{r include=FALSE}
+
+df <- extract_nonzero_power(Power)
+
+v <- c(3, 6, 10)
+df <- filter_gear(df, v)
+
+unique_sorted <- sort(unique(df$Gear))
+matrix = find_simultaneous_equations(df)
+matrix <- matrix[-nrow(matrix), ]
+print(matrix)
+newHRs <- F_calc_func(model, results)
+vector <- Target_Harvest_Ratio
+vector <- vector[-length(vector)]
+print(vector)
+x <- solve(matrix, vector)
+
+Activity_Multiplier[unique_sorted] <- x
+Activity_Multiplier[3] <- 0
+Activity_Multiplier[6] <- 0
+Activity_Multiplier[10] <- 0
+
+
+newmodel <- model
+
+newmodel$data$fleet.model$gear_mult <- Activity_Multiplier
+results <- e2e_run(model,nyears=3)
+newHRs <- F_calc_func(newmodel, results)
+
+
+```
+
+```{r}
+
+df <- extract_nonzero_power(Power)
+
+unique_sorted <- sort(unique(df$Gear))
+matrix = find_simultaneous_equations(df)
+matrix <- matrix[-nrow(matrix), ]
+newHRs <- F_calc_func(model, results)
+vector <- Target_Harvest_Ratio
+vector <- vector[-length(vector)]
+
+result <- lp(
+  direction = "min",
+  objective.in = rep(0, ncol(matrix)),
+  const.mat = matrix,
+  const.dir = rep("=", nrow(matrix)),
+  const.rhs = vector,
+  all.int = FALSE,
+)
+
+print(result$solution)
+
+```
+
+```{r results = 'hide'}
+
+# matrix <- matrix(c(3, 2, 4,
+#                    2, 1, 0),
+#                  nrow = 2,
+#                  byrow = TRUE)
+# 
+# vector <- c(2, 1)
+# 
+# result <- lp(
+#   direction = "min",
+#   objective.in = rep(0, ncol(matrix)),
+#   const.mat = matrix,
+#   const.dir = rep("=", nrow(matrix)),
+#   const.rhs = vector,
+#   all.int = FALSE
+# )
+# 
+# print(result$solution)
 
 ```
