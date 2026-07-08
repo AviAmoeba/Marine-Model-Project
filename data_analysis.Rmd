@@ -1,371 +1,224 @@
 ---
-title: "Marine-Model-Project"
+title: "StrathE2E2 Project"
+author: "Avinash Pothuri"
 output: html_document
 ---
 
-```         
+<br><br>
 
-The Harvest Ratio is the proportion of instantaneous biomass captured per unit time. It is calculated by both Activity and Power of the fishing gear.
+## Overview 
+
+The Harvest Ratio is the proportion of average biomass captured per unit time. It is calculated by both Activity and Power of the fishing gear.
 
 The initial Goal of the project was to create a program that calculates the required Activity multiplier for a specific input target harvest ratio.
 
-```
+<br><br>
+
+### Week 1
+
+#### Background ####
+
+
+For each fishing guild, the harvest ratio is given by aggregating the contribution of all individual fishing gears. This relationship for the first guilds harvest ratio is shown in Equation 1:
+
+$$
+A_1 a_1 + B_1 a_2 + \dots + L_1 a_{12} = HR_1
+\tag{1}
+$$
+
+where:
+
+- \(A_1, B_1, \dots, L_1\) represent the contribution from each fishing gear.
+- \(a_1, a_2, \dots, a_{12}\) are the activity multipliers for fishing gears 1 to 12, respectively.
+- \(HR_1\) is the total harvest ratio for the first fishing guild.
+
+A similar equation can be found for all 10 fishing guilds, and thus altogether can be written as a matrix equation shown in Equation 2:
+
+$$ 
+\mathbf{M} \ \mathbf{a} \ = \ \mathbf{x}
+\tag{2}
+$$
+
+
+Where **M** represents the contribution matrix, with each row corresponding to a fishing guild and each column corresponding to an individual fishing gear. The vector **a** contains the activity multipliers for the fishing gears, while **x** contains the resulting harvest ratios for each fishing guild.
+
+$$
+\mathbf{M} =
+\begin{bmatrix}
+A_1 & B_1 & . & . & . & L_1 \\
+A_2 & B_2 & . & . & . & L_2 \\
+. & . & . &  &  & . \\
+. & . &  & . &  & . \\
+. & . &  &  & . & . \\
+A_{10} & B_{10} & . & . & . & L_{10} \\
+\end{bmatrix}
+\qquad
+\mathbf{a} =
+\begin{bmatrix}
+a_1 \\
+a_2 \\
+. \\
+. \\
+a_{12}
+\end{bmatrix}
+\qquad
+\mathbf{x} =
+\begin{bmatrix}
+HR_1 \\
+HR_2 \\
+. \\
+. \\
+HR_{10}
+\end{bmatrix}
+$$
+
+The program attempts to find the activity multipliers, by setting vector **x** to the target harvest ratios, and then solving equation 2. Generally since there are only 10 equations compared to 12 variables, this equation should be underconstrained and thus an infinite number of solutions, but since activity multipliers have to be greater than zero there might not always be solutions.
+
+
+<br><br>
+
+#### Program ####
+
+The following code block loads in all relavent libraries and gets the model from StrathE2E2
 
 ```{r setup, message = FALSE}
 
-# results = 'hide'
+source("functions.R")
+library(nnls)
 
 library(StrathE2E2)
 model <- e2e_read("North_Sea","2003-2013")
-results <- e2e_run(model,nyears=3)
-
-# library(rootSolve)
-library(lpSolve)
-
-source("functions.R")
+# results <- e2e_run(model,nyears=3)
 
 ```
 
-```{r}
+<br><br>
 
-Target_Harvest_Ratio <- c(0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05)
+The following code block retrievs revalent values from the model
+
+```{r}
 
 Activity <- model$data$fleet.model$gear_activity
 Power <- model$data$fleet.model$gear_group_rel_power
 Activity_Multiplier <- model$data$fleet.model$gear_mult
 
-
-# Power_m <- as.matrix(Power)
-# 
-# HR <- Activity * Power
-# HR_m <-  Activity %*% Power_m
-
-
-Harvest_Ratio <- e2e_extract_hr(model,results)
-# HR <- F_calc_func(model, results)
-
+Harvest_Ratio <- F_calc_func(model)
+Target_Harvest_Ratio <- c(0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0)
 
 ```
 
-```{r}
+<br><br>
 
-F_calc_func <- function(basemodel,dataset) {
-  
-  model<-basemodel
-  fishing_fleet_model<-StrathE2E2:::fishing_fleet_model
-  
-  shallowprop<-sum(model$data$physical.parameters$habitat_areas[1:4])
-  deepprop_exOH<-sum(model$data$physical.parameters$habitat_areas[5:8])
-  
-  grouplabels <- c(
-    "Planktivorous_fish",
-    "Demersal_fish",
-    "Migratory_fish",
-    "Benthos_susp-dep",
-    "Benthos_carn-scav",
-    "Zooplankton_carn",
-    "Birds",
-    "Pinnipeds",
-    "Cetaceans",
-    "Macrophytes"
-  )
-  
-  fleet_object <- fishing_fleet_model(model,2)
-  
-  fleet_vector	<- fleet_object$fleet_vector
-  
-  zonalHRs<-data.frame(Guilds=grouplabels,Inshore_harvest_ratio=rep(0,length(grouplabels)),Offshore_harvest_ratio=rep(0,length(grouplabels)),Whole_domain_harvest_ratio=rep(0,length(grouplabels)))
-  
-  zonalHRs$Inshore_harvest_ratio<-c(fleet_vector["F_inshore_pelagic"],
-                                    fleet_vector["F_inshore_demersal"],
-                                    fleet_vector["F_inshore_migratory"],
-                                    fleet_vector["F_inshore_filtben"],
-                                    fleet_vector["F_inshore_carnben"],
-                                    fleet_vector["F_inshore_carnzoo"],
-                                    fleet_vector["F_inshore_bird"],
-                                    fleet_vector["F_inshore_seal"],
-                                    fleet_vector["F_inshore_ceta"],
-                                    fleet_vector["F_inshore_kelp"])
-  
-  zonalHRs$Offshore_harvest_ratio<-c(fleet_vector["F_offshore_pelagic"],
-                                     fleet_vector["F_offshore_demersal"],
-                                     fleet_vector["F_offshore_migratory"],
-                                     fleet_vector["F_offshore_filtben"],
-                                     fleet_vector["F_offshore_carnben"],
-                                     fleet_vector["F_offshore_carnzoo"],
-                                     fleet_vector["F_offshore_bird"],
-                                     fleet_vector["F_offshore_seal"],
-                                     fleet_vector["F_offshore_ceta"],
-                                     fleet_vector["F_offshore_kelp"])
-  
-  zonalHRs$Whole_domain_harvest_ratio[c(1,2,3,6,7,8,9)]<- (zonalHRs$Inshore_harvest_ratio[c(1,2,3,6,7,8,9)]*shallowprop) + (zonalHRs$Offshore_harvest_ratio[c(1,2,3,6,7,8,9)]*(1-shallowprop))
-  zonalHRs$Whole_domain_harvest_ratio[c(4,5,10)]<- ((zonalHRs$Inshore_harvest_ratio[c(4,5,10)]*shallowprop) + (zonalHRs$Offshore_harvest_ratio[c(4,5,10)]*(deepprop_exOH)))/(shallowprop+deepprop_exOH)
-  
-  return(zonalHRs)
-  
-}
-
-```
+The following code contains functions that generate matrix **M**. It does that by setting all activity multipliers a2, a3 ... a12 to zer while it keeps a1 = 1 and then finds the resultant HR values, this is the same as A1, A2, A3 ... A10, It repeats this process for all activity multiplier and then constructs the matrix.
 
 ```{r}
 
-# Extracts all non-zero entries in the power data frame
-extract_nonzero_power <- function(power_data_frame) {
-  
-  # ensures power is a matrix
-  power_matrix <- as.matrix(power_data_frame)
-  
-  # find non-zero entries, idx = index
-  idx <- which(power_matrix != 0, arr.ind = TRUE)
-  
-  # builds the data frame, df = data frame
-  df <- data.frame(
-    Guild = idx[, 2],
-    Gear = idx[, 1],
-    Power_Value = power_matrix[idx]
-  )
-  
-  return(df)
-}
-
-
-extract_single_guild_occurrence <- function(df) {
-  
-  # count how many times each column appears
-  guild_counts <- table(df$Guild)
-  
-  # find columns that appear exactly once
-  single_guild <- names(guild_counts[guild_counts == 1])
-  
-  # filter original data frame
-  single_guild_df <- df[df$Guild %in% as.numeric(single_guild), ]
-  
-  return(single_guild_df)
-}
-
-
-edit_single_activity_multiplier <- function(single_guild_df, target_HR, harvest_ratio_data, target_Activity) {
-  
-  index_guild <- single_guild_df$Guild
-  index_gear <- single_guild_df$Gear
-  
-  target_Activity[index_gear] <- target_HR[index_guild] / harvest_ratio_data$Whole_domain_harvest_ratio[index_guild]
-  
-  return(target_Activity)
-}
-
-
-find_HR_components <- function(target_activity, model) {
-  
-  temp_model <- model
+find_HR_components <- function(target_activity, temp_model) {
   
   temp_activity <- rep(0, 12)
   temp_activity[target_activity] <- 1
-  
   temp_model$data$fleet.model$gear_mult <- temp_activity
-  temp_results <- e2e_run(temp_model,nyears=3)
-  harvest_ratio_component <- e2e_extract_hr(temp_model,temp_results)
+  
+  harvest_ratio_component <- F_calc_func(temp_model)
   
   return(harvest_ratio_component)
 }
 
 
-
-#########################
-modify_targer_HR <- function(df, single_guild_df, target_HR, model) {
+find_HR_equations_matrix <- function(model) {
   
+  temp_model <- model
   
-  for (i in seq_along(length(single_guild_df$Gear))) {
-   
-    harvest_ratio_data <- find_HR_components(single_guild_df$Gear[i], model)
+  HR_matrix <- sapply(1:12, function(v) {
+    result <- find_HR_components(v, temp_model)
+    result$Whole_domain_harvest_ratio
     
-    guild_idx <- df$Guild[df$Gear == single_guild_df$Gear[i]]
-
-    target_HR[guild_idx] <- target_HR[guild_idx] - harvest_ratio_data$Whole_domain_harvest_ratio[guild_idx]
-    
-  }
-  return(target_HR)
-}
-############################
-
-
-
-filter_gear <- function(df, filter_df) {
-  df <- df[!(df$Gear %in% filter_df), ]
-  return(df)
-}
-
-
-
-normalize_power_by_group_max <- function(df) {
-  
-  # get max per column group
-  max_vals <- tapply(df$Power_Value, df$Guild, max)
-  
-  # map max back to each row
-  df$MaxValue <- max_vals[as.character(df$Guild)]
-  
-  # normalize (maxP/currentP)
-  df$Normalized <- df$MaxValue / df$Power_Value
-  
-  return(df)
-}
-
-
-
-find_simultaneous_equations <- function(df) {
-  
-  unique_sorted <- sort(unique(df$Gear))
-  
-  res_list <- lapply(unique_sorted, function(v) {
-    out <- find_HR_components(v, model)
-    out$Whole_domain_harvest_ratio
   })
-
   
-  mat <- do.call(cbind, res_list)
-  
-  return(mat)
+  return(HR_matrix)
 }
 
-
 ```
 
-```{r include=FALSE}
+<br><br>
+
+To find the soluion, or to get as close as you can to the solution, the program uses the nnls package (non negative _____)
+``` {r}
 
 
+Equations_Matrix <- find_HR_equations_matrix(model)
+Equations_Matrix <- Equations_Matrix[-nrow(Equations_Matrix), ]
 
-df <- extract_nonzero_power(Power)
+Target_HR_Vector <- Target_Harvest_Ratio
+Target_HR_Vector <- Target_HR_Vector[-length(Target_HR_Vector)]
 
-repeat {
-  single_guild_df <- extract_single_guild_occurrence(df)
+fit <- nnls(Equations_Matrix, Target_HR_Vector)
+x <- coef(fit)
 
-  if (nrow(single_guild_df) == 0) {
-    break
-  }
-  
-  new_gear_mults <- edit_single_activity_multiplier(single_guild_df, Target_Harvest_Ratio, Harvest_Ratio, Activity_Multiplier)
-  Target_Harvest_Ratio <- modify_targer_HR(df, single_guild_df, Target_Harvest_Ratio, model)
-  df <- filter_gear(df, single_guild_df)
+residual <- Target_HR_Vector - Equations_Matrix %*% x
+tolerance = 1e-10
+if (norm(residual, type="2") < tolerance) {
+  print("Exact non-negative solution")
+} else {
+  print("NO exact non-negative solution")
 }
-
-baseHRs <- F_calc_func(model, results)
-
-newmodel <- model
-
-newmodel$data$fleet.model$gear_mult <- new_gear_mults
-results <- e2e_run(model,nyears=3)
-newHRs <- F_calc_func(newmodel, results)
-print(df)
-print(newHRs$Whole_domain_harvest_ratio)
-
-
-
-```
-
-```{r results = 'hide'}
-
-```
-
-```{r include=FALSE}
-
-Activity_Finished = c()
-
-df <- extract_nonzero_power(Power)
-
-repeat {
-  single_guild_df <- extract_single_guild_occurrence(df)
-
-  if (nrow(single_guild_df) == 0) {
-    break
-  }
-  
-  Activity_Finished <- c(Activity_Finished, single_guild_df$Gear)
-  new_gear_mults <- edit_single_activity_multiplier(single_guild_df, Target_Harvest_Ratio, Harvest_Ratio, Activity_Multiplier)
-  Target_Harvest_Ratio <- modify_targer_HR(df, single_guild_df, Target_Harvest_Ratio, model)
-  df <- filter_gear(df, single_guild_df$Gear)
-}
-
-new_gear_mults <- edit_single_activity_multiplier(single_guild_df, Target_Harvest_Ratio, Harvest_Ratio, Activity_Multiplier)
-
-
-
-```
-
-```{r include=FALSE}
-
-df <- extract_nonzero_power(Power)
-
-v <- c(3, 6, 10)
-df <- filter_gear(df, v)
-
-unique_sorted <- sort(unique(df$Gear))
-matrix = find_simultaneous_equations(df)
-matrix <- matrix[-nrow(matrix), ]
-print(matrix)
-newHRs <- F_calc_func(model, results)
-vector <- Target_Harvest_Ratio
-vector <- vector[-length(vector)]
-print(vector)
-x <- solve(matrix, vector)
-
-Activity_Multiplier[unique_sorted] <- x
-Activity_Multiplier[3] <- 0
-Activity_Multiplier[6] <- 0
-Activity_Multiplier[10] <- 0
 
 
 newmodel <- model
 
-newmodel$data$fleet.model$gear_mult <- Activity_Multiplier
-results <- e2e_run(model,nyears=3)
-newHRs <- F_calc_func(newmodel, results)
+newmodel$data$fleet.model$gear_mult <- x
+newHRs <- F_calc_func(newmodel)
 
+HR <- newHRs$Whole_domain_harvest_ratio
+
+x <- cosine_similarity(Target_Harvest_Ratio, HR)
 
 ```
+
+<br><br>
+
+### Week 2
+
+
 
 ```{r}
 
-df <- extract_nonzero_power(Power)
-
-unique_sorted <- sort(unique(df$Gear))
-matrix = find_simultaneous_equations(df)
-matrix <- matrix[-nrow(matrix), ]
-newHRs <- F_calc_func(model, results)
-vector <- Target_Harvest_Ratio
-vector <- vector[-length(vector)]
-
-result <- lp(
-  direction = "min",
-  objective.in = rep(0, ncol(matrix)),
-  const.mat = matrix,
-  const.dir = rep("=", nrow(matrix)),
-  const.rhs = vector,
-  all.int = FALSE,
-)
-
-print(result$solution)
+# library(numDeriv)
+# 
+# 
+# edit_power <- function(Power, value) {
+#   Power$pelagic[1] <- value
+#   return(Power)
+# }
+# 
+# y <- edit_power(Power, 1)
+# 
+# 
+# find_final_cos <- function(value) {
+#   
+#   Target_HR_Vector <- c(0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05)
+#   
+#   model <- e2e_read("North_Sea","2003-2013")
+#   model$data$fleet.model$gear_group_rel_power$pelagic[1] <- value
+#   
+#   Matrix <- generate_matrix(model)
+#   
+#   x <- find_optimal_solutions(Matrix, Target_HR_Vector)
+#   
+#   model$data$fleet.model$gear_mult <- x
+#   newHRs <- F_calc_func(model)
+#   
+#   HR <- newHRs$Whole_domain_harvest_ratio
+#   
+#   output <- cosine_similarity(Target_HR_Vector, HR)
+#   
+#   
+#   return(output)
+# }
+# 
+# # find_final_cos(1.9e3)
+# g <- grad(find_final_cos, 1.9e3)
+# print(g)
 
 ```
 
-```{r results = 'hide'}
-
-# matrix <- matrix(c(3, 2, 4,
-#                    2, 1, 0),
-#                  nrow = 2,
-#                  byrow = TRUE)
-# 
-# vector <- c(2, 1)
-# 
-# result <- lp(
-#   direction = "min",
-#   objective.in = rep(0, ncol(matrix)),
-#   const.mat = matrix,
-#   const.dir = rep("=", nrow(matrix)),
-#   const.rhs = vector,
-#   all.int = FALSE
-# )
-# 
-# print(result$solution)
-
-```
