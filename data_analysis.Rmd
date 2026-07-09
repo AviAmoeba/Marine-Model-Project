@@ -85,6 +85,7 @@ The following code block loads in all relavent libraries and gets the model from
 
 source("functions.R")
 library(nnls)
+library(bvls)
 
 library(StrathE2E2)
 model <- e2e_read("North_Sea","2003-2013")
@@ -103,7 +104,8 @@ Power <- model$data$fleet.model$gear_group_rel_power
 Activity_Multiplier <- model$data$fleet.model$gear_mult
 
 Harvest_Ratio <- F_calc_func(model)
-Target_Harvest_Ratio <- c(0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0)
+Target_Harvest_Ratio <- c(0.0001, 0.0004, 0.002, 0.0004, 0.0003, 0.0005, 0.00008, 0.000002, 0.001, 0)
+
 
 ```
 
@@ -113,112 +115,208 @@ The following code contains functions that generate matrix **M**. It does that b
 
 ```{r}
 
-find_HR_components <- function(target_activity, temp_model) {
+find_HR_matrix_components <- function(target_activity_index, temperary_model) {
   
-  temp_activity <- rep(0, 12)
-  temp_activity[target_activity] <- 1
-  temp_model$data$fleet.model$gear_mult <- temp_activity
+  number_of_gears = 12
   
-  harvest_ratio_component <- F_calc_func(temp_model)
+  temperary_activity <- numeric(number_of_gears)
+  temperary_activity[target_activity_index] <- 1
+  temperary_model$data$fleet.model$gear_mult <- temperary_activity
   
-  return(harvest_ratio_component)
+  harvest_ratio_component <- F_calc_func(temperary_model)
 }
 
+reduce_hr_matrix <- function(hr_matrix, deleted_rows_index) {
+  hr_matrix[-deleted_rows_index, ]
+}
 
-find_HR_equations_matrix <- function(model) {
+reduce_target_hr <- function(target_hr, deleted_rows_index) {
+  target_hr[-deleted_rows_index]
+}
+
+find_HR_matrix <- function(model) {
   
-  temp_model <- model
+  number_of_gears = 12
+  temperary_model <- model
   
-  HR_matrix <- sapply(1:12, function(v) {
-    result <- find_HR_components(v, temp_model)
-    result$Whole_domain_harvest_ratio
-    
+  hr_matrix <- sapply(1:number_of_gears, function(gear_id) {
+    hr_components <- find_HR_matrix_components(gear_id, temperary_model)
+    hr_components$Whole_domain_harvest_ratio
   })
   
-  return(HR_matrix)
+  zero_hr_guilds <- which(rowSums(hr_matrix != 0) == 0)
+  
+  list(
+    hr_matrix = reduce_hr_matrix(hr_matrix, zero_hr_guilds),
+    zero_hr_guilds = zero_hr_guilds
+  )
+}
+
+find_modified_hr <- function(model, modified_activity_multiplier) {
+  newmodel <- model
+  newmodel$data$fleet.model$gear_mult <- modified_activity_multiplier
+  newHRs <- F_calc_func(newmodel)
+  HR <- newHRs$Whole_domain_harvest_ratio
+  return(HR)
+}
+
+check_if_exact_solution <- function(final_activity_multiplier, harvest_ratio_matrix, target_harvest_ratio) {
+  residual <- target_harvest_ratio - harvest_ratio_matrix %*% final_activity_multiplier
+  tolerance = 1e-10
+  norm(residual, type = "2") < tolerance
+}
+
+solve_activity_multiplier_nnls <- function(hr_matrix, target_hr) {
+
+  fit <- nnls(hr_matrix, target_hr)
+  x <- coef(fit)
+
+}
+
+initialize_data <- function(Target_Harvest_Ratio) {
+
+  matrix_data <- find_HR_matrix(model)
+  
+  list(
+    Target_Harvest_Ratio = reduce_target_hr(Target_Harvest_Ratio, matrix_data$zero_hr_guilds),
+    Equations_Matrix = matrix_data$hr_matrix
+  )
 }
 
 ```
 
 <br><br>
 
-To find the soluion, or to get as close as you can to the solution, the program uses the nnls package (non negative _____)
-``` {r}
+```{r}
+Target_Harvest_Ratio <- c(0.0001, 0.0004, 0.002, 0.0004, 0.0003, 0.0005, 0.00008, 0.000002, 0.001, 0)
 
+hr_data <- initialize_data(Target_Harvest_Ratio)
+Equations_Matrix <- hr_data$Equations_Matrix
+Target_Harvest_Ratio <- hr_data$Target_Harvest_Ratio
 
-Equations_Matrix <- find_HR_equations_matrix(model)
-Equations_Matrix <- Equations_Matrix[-nrow(Equations_Matrix), ]
+modified_activity_multiplier <- solve_activity_multiplier_nnls(Equations_Matrix, Target_Harvest_Ratio)
 
-Target_HR_Vector <- Target_Harvest_Ratio
-Target_HR_Vector <- Target_HR_Vector[-length(Target_HR_Vector)]
+has_exact_solution <- check_if_exact_solution(modified_activity_multiplier, Equations_Matrix, Target_Harvest_Ratio)
+x <- find_modified_hr(model, modified_activity_multiplier)
 
-fit <- nnls(Equations_Matrix, Target_HR_Vector)
-x <- coef(fit)
-
-residual <- Target_HR_Vector - Equations_Matrix %*% x
-tolerance = 1e-10
-if (norm(residual, type="2") < tolerance) {
-  print("Exact non-negative solution")
-} else {
-  print("NO exact non-negative solution")
-}
-
-
-newmodel <- model
-
-newmodel$data$fleet.model$gear_mult <- x
-newHRs <- F_calc_func(newmodel)
-
-HR <- newHRs$Whole_domain_harvest_ratio
-
-x <- cosine_similarity(Target_Harvest_Ratio, HR)
-
+print(modified_activity_multiplier)
 ```
 
 <br><br>
 
 ### Week 2
 
+To find the soluion, or to get as close as you can to the solution, the program uses the nnls package (non negative _____)
+``` {r}
+
+residue_sum_of_squares <- function(hr_matrix, modified_activity_multiplier, target_harvest_ratio) {
+  residuals <- target_harvest_ratio - hr_matrix %*% modified_activity_multiplier
+  sum(residuals^2)
+}
+
+upper_bound_solution <- function(hr_matrix, target_harvest_ratio, upper_bound) {
+  
+  lower_bound <- rep(0, 12)
+  
+  fit <- bvls(
+    hr_matrix,
+    target_harvest_ratio,
+    bl = lower_bound,
+    bu = upper_bound
+  )
+  
+  modified_activity_multiplier <- fit$x
+}
+
+
+```
+
+<br><br>
 
 
 ```{r}
 
-# library(numDeriv)
-# 
-# 
-# edit_power <- function(Power, value) {
-#   Power$pelagic[1] <- value
-#   return(Power)
-# }
-# 
-# y <- edit_power(Power, 1)
-# 
-# 
-# find_final_cos <- function(value) {
-#   
-#   Target_HR_Vector <- c(0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05)
-#   
-#   model <- e2e_read("North_Sea","2003-2013")
-#   model$data$fleet.model$gear_group_rel_power$pelagic[1] <- value
-#   
-#   Matrix <- generate_matrix(model)
-#   
-#   x <- find_optimal_solutions(Matrix, Target_HR_Vector)
-#   
-#   model$data$fleet.model$gear_mult <- x
-#   newHRs <- F_calc_func(model)
-#   
-#   HR <- newHRs$Whole_domain_harvest_ratio
-#   
-#   output <- cosine_similarity(Target_HR_Vector, HR)
-#   
-#   
-#   return(output)
-# }
-# 
-# # find_final_cos(1.9e3)
-# g <- grad(find_final_cos, 1.9e3)
-# print(g)
+Target_Harvest_Ratio <- c(0.0001, 0.0004, 0.002, 0.0004, 0.0003, 0.0005, 0.00008, 0.000002, 0.001, 0)
+
+hr_data <- initialize_data(Target_Harvest_Ratio)
+Equations_Matrix <- hr_data$Equations_Matrix
+Target_Harvest_Ratio <- hr_data$Target_Harvest_Ratio
+
+
+x_values <- seq(0, 3, length.out = 200)
+
+y_values <- sapply(x_values, function(x) {
+  residue_sum_of_squares(
+    hr_matrix = Equations_Matrix,
+    modified_activity_multiplier = upper_bound_solution(Equations_Matrix, Target_Harvest_Ratio, rep(x, 12)),
+    target_harvest_ratio = Target_Harvest_Ratio
+  )
+})
+
+plot(x_values, y_values,
+     type = "l",
+     xlab = "Upper Bound Values",
+     ylab = "Sum of Residue Squares",
+     main = "Upper Bounds values vs RSS")
+
+grid()
+
+```
+
+
+
+
+```{r}
+
+Target_Harvest_Ratio <- c(0.0001, 0.0004, 0.002, 0.0004, 0.0003, 0.0005, 0.00008, 0.000002, 0.001, 0)
+var <- c("No removing")
+rss_values <- c()
+
+hr_data <- initialize_data(Target_Harvest_Ratio)
+  
+Equations_Matrix <- hr_data$Equations_Matrix
+Target_HR <- hr_data$Target_Harvest_Ratio
+
+modified_activity_multiplier <- solve_activity_multiplier_nnls(Equations_Matrix, Target_HR)
+  
+x <- residue_sum_of_squares(Equations_Matrix, modified_activity_multiplier, Target_HR)
+rss_values <- c(rss_values, x)
+
+for (i in 1:9) {
+
+  
+  Equations_Matrix <- hr_data$Equations_Matrix
+  Target_HR <- hr_data$Target_Harvest_Ratio
+  
+  Equations_Matrix <- reduce_hr_matrix(Equations_Matrix, i)
+  Target_HR <- reduce_target_hr(Target_HR, i)
+  
+  modified_activity_multiplier <- solve_activity_multiplier_nnls(Equations_Matrix, Target_HR)
+  
+  x <- residue_sum_of_squares(Equations_Matrix, modified_activity_multiplier, Target_HR)
+  
+  var <- c(var, i)
+  rss_values <- c(rss_values, x)
+}
+
+
+barplot(rss_values,
+        names.arg = var,
+        main = "My Bar Graph",
+        xlab = "Category",
+        ylab = "Value")
+
+
+
+```
+
+
+```{r}
+
+input_power_output_rss <- function(power) {
+  
+}
+
 
 ```
 
