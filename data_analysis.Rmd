@@ -1,6 +1,7 @@
 ---
 title: "StrathE2E2 Project"
 author: "Avinash Pothuri"
+date: "  "
 output: html_document
 ---
 
@@ -14,9 +15,9 @@ The initial Goal of the project was to create a program that calculates the requ
 
 <br><br>
 
-### Week 1
+### Report
 
-#### Background ####
+#### Background
 
 
 For each fishing guild, the harvest ratio is given by aggregating the contribution of all individual fishing gears. This relationship for the first guilds harvest ratio is shown in Equation 1:
@@ -35,12 +36,12 @@ where:
 A similar equation can be found for all 10 fishing guilds, and thus altogether can be written as a matrix equation shown in Equation 2:
 
 $$ 
-\mathbf{M} \ \mathbf{a} \ = \ \mathbf{x}
+\mathbf{M} \ \mathbf{x} \ = \ \mathbf{y}
 \tag{2}
 $$
 
 
-Where **M** represents the contribution matrix, with each row corresponding to a fishing guild and each column corresponding to an individual fishing gear. The vector **a** contains the activity multipliers for the fishing gears, while **x** contains the resulting harvest ratios for each fishing guild.
+Where **M** represents the contribution matrix, with each row corresponding to a fishing guild and each column corresponding to an individual fishing gear. The vector **x** contains the activity multipliers for the fishing gears, while **y** contains the resulting harvest ratios for each fishing guild.
 
 $$
 \mathbf{M} =
@@ -53,7 +54,7 @@ A_2 & B_2 & . & . & . & L_2 \\
 A_{10} & B_{10} & . & . & . & L_{10} \\
 \end{bmatrix}
 \qquad
-\mathbf{a} =
+\mathbf{x} =
 \begin{bmatrix}
 a_1 \\
 a_2 \\
@@ -62,7 +63,7 @@ a_2 \\
 a_{12}
 \end{bmatrix}
 \qquad
-\mathbf{x} =
+\mathbf{y} =
 \begin{bmatrix}
 HR_1 \\
 HR_2 \\
@@ -72,7 +73,7 @@ HR_{10}
 \end{bmatrix}
 $$
 
-The program attempts to find the activity multipliers, by setting vector **x** to the target harvest ratios, and then solving equation 2. Generally since there are only 10 equations compared to 12 variables, this equation should be underconstrained and thus an infinite number of solutions, but since activity multipliers have to be greater than zero there might not always be solutions.
+The program attempts to find the activity multipliers, by setting vector **y** to the target harvest ratios, and then solving equation 2. Generally since there are only 10 equations compared to 12 variables, this equation should be underconstrained and thus an infinite number of solutions, but since activity multipliers have to be greater than zero there might not always be solutions.
 
 
 <br><br>
@@ -91,27 +92,22 @@ library(StrathE2E2)
 model <- e2e_read("North_Sea","2003-2013")
 # results <- e2e_run(model,nyears=3)
 
-```
-
-<br><br>
-
-The following code block retrievs revalent values from the model
-
-```{r}
-
-Activity <- model$data$fleet.model$gear_activity
-Power <- model$data$fleet.model$gear_group_rel_power
-Activity_Multiplier <- model$data$fleet.model$gear_mult
-
-Harvest_Ratio <- F_calc_func(model)
+Harvest_Ratio <- F_calc_func_2(model)
 Target_Harvest_Ratio <- c(0.0001, 0.0004, 0.002, 0.0004, 0.0003, 0.0005, 0.00008, 0.000002, 0.001, 0)
 
+# Activity <- model$data$fleet.model$gear_activity
+Power <- model$data$fleet.model$gear_group_rel_power
+# Activity_Multiplier <- model$data$fleet.model$gear_mult
 
 ```
 
 <br><br>
 
-The following code contains functions that generate matrix **M**. It does that by setting all activity multipliers a2, a3 ... a12 to zer while it keeps a1 = 1 and then finds the resultant HR values, this is the same as A1, A2, A3 ... A10, It repeats this process for all activity multiplier and then constructs the matrix.
+The following code contains functions that generate matrix **M**. This is achieved by setting all activity multipliers a2, a3 ... a12 to zero while maintaining a1 = 1, and then calculates the resultant harvest ratio values. These calculated value correspond to A1, A2, A3 ... A10. The process is repeated for each activity multiplier in turn, allowing for matrix **M** to be constructed.
+
+Additionally, the code checks for guilds which '' have all zero values and thus cannot have a hr value, and then removes the relavent row from the matrix and from the target harvest ratio. ''
+
+<br><br>
 
 ```{r}
 
@@ -123,7 +119,7 @@ find_HR_matrix_components <- function(target_activity_index, temperary_model) {
   temperary_activity[target_activity_index] <- 1
   temperary_model$data$fleet.model$gear_mult <- temperary_activity
   
-  harvest_ratio_component <- F_calc_func(temperary_model)
+  F_calc_func_2(temperary_model)
 }
 
 reduce_hr_matrix <- function(hr_matrix, deleted_rows_index) {
@@ -134,14 +130,12 @@ reduce_target_hr <- function(target_hr, deleted_rows_index) {
   target_hr[-deleted_rows_index]
 }
 
-find_HR_matrix <- function(model) {
+find_HR_matrix <- function(temperary_model) {
   
   number_of_gears = 12
-  temperary_model <- model
   
   hr_matrix <- sapply(1:number_of_gears, function(gear_id) {
     hr_components <- find_HR_matrix_components(gear_id, temperary_model)
-    hr_components$Whole_domain_harvest_ratio
   })
   
   zero_hr_guilds <- which(rowSums(hr_matrix != 0) == 0)
@@ -152,12 +146,47 @@ find_HR_matrix <- function(model) {
   )
 }
 
-find_modified_hr <- function(model, modified_activity_multiplier) {
-  newmodel <- model
-  newmodel$data$fleet.model$gear_mult <- modified_activity_multiplier
-  newHRs <- F_calc_func(newmodel)
-  HR <- newHRs$Whole_domain_harvest_ratio
-  return(HR)
+initialize_data <- function(model, Target_Harvest_Ratio) {
+
+  matrix_data <- find_HR_matrix(model)
+  
+  list(
+    Target_Harvest_Ratio = reduce_target_hr(Target_Harvest_Ratio, matrix_data$zero_hr_guilds),
+    Equations_Matrix = matrix_data$hr_matrix,
+    zero_hr_guilds = matrix_data$zero_hr_guilds
+  )
+}
+
+```
+
+<br><br>
+
+The way it gets close to the answer is by minimising the least squares,
+It also enforces x > 0 condition.
+
+$$
+\sum_{i=1}^{n}(Ax_i-y_i)^2
+$$
+
+<br><br>
+
+```{r}
+
+solve_activity_multiplier_nnls <- function(hr_matrix, target_hr) {
+  modified_activity_multiplier <- coef(nnls(hr_matrix, target_hr))
+}
+
+```
+
+<br><br>
+
+<br><br>
+
+```{r}
+
+find_modified_hr <- function(temperary_model, modified_activity_multiplier) {
+  temperary_model$data$fleet.model$gear_mult <- modified_activity_multiplier
+  F_calc_func_2(temperary_model)
 }
 
 check_if_exact_solution <- function(final_activity_multiplier, harvest_ratio_matrix, target_harvest_ratio) {
@@ -166,38 +195,30 @@ check_if_exact_solution <- function(final_activity_multiplier, harvest_ratio_mat
   norm(residual, type = "2") < tolerance
 }
 
-solve_activity_multiplier_nnls <- function(hr_matrix, target_hr) {
-
-  fit <- nnls(hr_matrix, target_hr)
-  x <- coef(fit)
-
-}
-
-initialize_data <- function(Target_Harvest_Ratio) {
-
-  matrix_data <- find_HR_matrix(model)
-  
-  list(
-    Target_Harvest_Ratio = reduce_target_hr(Target_Harvest_Ratio, matrix_data$zero_hr_guilds),
-    Equations_Matrix = matrix_data$hr_matrix
-  )
+residue_sum_of_squares <- function(hr_matrix, modified_activity_multiplier, target_harvest_ratio) {
+  residuals <- target_harvest_ratio - hr_matrix %*% modified_activity_multiplier
+  sum(residuals^2)
 }
 
 ```
 
 <br><br>
 
+<br><br>
+
 ```{r}
 Target_Harvest_Ratio <- c(0.0001, 0.0004, 0.002, 0.0004, 0.0003, 0.0005, 0.00008, 0.000002, 0.001, 0)
 
-hr_data <- initialize_data(Target_Harvest_Ratio)
+hr_data <- initialize_data(model, Target_Harvest_Ratio)
+
 Equations_Matrix <- hr_data$Equations_Matrix
 Target_Harvest_Ratio <- hr_data$Target_Harvest_Ratio
+zero_hr_guilds = hr_data$zero_hr_guilds
 
 modified_activity_multiplier <- solve_activity_multiplier_nnls(Equations_Matrix, Target_Harvest_Ratio)
 
 has_exact_solution <- check_if_exact_solution(modified_activity_multiplier, Equations_Matrix, Target_Harvest_Ratio)
-x <- find_modified_hr(model, modified_activity_multiplier)
+modified_hr <- find_modified_hr(model, modified_activity_multiplier)
 
 print(modified_activity_multiplier)
 ```
@@ -207,12 +228,10 @@ print(modified_activity_multiplier)
 ### Week 2
 
 To find the soluion, or to get as close as you can to the solution, the program uses the nnls package (non negative _____)
-``` {r}
 
-residue_sum_of_squares <- function(hr_matrix, modified_activity_multiplier, target_harvest_ratio) {
-  residuals <- target_harvest_ratio - hr_matrix %*% modified_activity_multiplier
-  sum(residuals^2)
-}
+<br><br>
+
+``` {r}
 
 upper_bound_solution <- function(hr_matrix, target_harvest_ratio, upper_bound) {
   
@@ -238,17 +257,17 @@ upper_bound_solution <- function(hr_matrix, target_harvest_ratio, upper_bound) {
 
 Target_Harvest_Ratio <- c(0.0001, 0.0004, 0.002, 0.0004, 0.0003, 0.0005, 0.00008, 0.000002, 0.001, 0)
 
-hr_data <- initialize_data(Target_Harvest_Ratio)
+hr_data <- initialize_data(model, Target_Harvest_Ratio)
 Equations_Matrix <- hr_data$Equations_Matrix
 Target_Harvest_Ratio <- hr_data$Target_Harvest_Ratio
 
 
-x_values <- seq(0, 3, length.out = 200)
+x_values <- seq(1, 3, length.out = 200)
 
-y_values <- sapply(x_values, function(x) {
+y_values <- sapply(x_values, function(upper_bound) {
   residue_sum_of_squares(
     hr_matrix = Equations_Matrix,
-    modified_activity_multiplier = upper_bound_solution(Equations_Matrix, Target_Harvest_Ratio, rep(x, 12)),
+    modified_activity_multiplier = upper_bound_solution(Equations_Matrix, Target_Harvest_Ratio, rep(upper_bound, 12)),
     target_harvest_ratio = Target_Harvest_Ratio
   )
 })
@@ -257,7 +276,9 @@ plot(x_values, y_values,
      type = "l",
      xlab = "Upper Bound Values",
      ylab = "Sum of Residue Squares",
-     main = "Upper Bounds values vs RSS")
+     main = "Upper Bound values vs RSS")
+
+# abline(h = RSS, col = "red", lty = 5, lwd = 2)
 
 grid()
 
@@ -269,42 +290,33 @@ grid()
 ```{r}
 
 Target_Harvest_Ratio <- c(0.0001, 0.0004, 0.002, 0.0004, 0.0003, 0.0005, 0.00008, 0.000002, 0.001, 0)
-var <- c("No removing")
-rss_values <- c()
 
-hr_data <- initialize_data(Target_Harvest_Ratio)
-  
-Equations_Matrix <- hr_data$Equations_Matrix
-Target_HR <- hr_data$Target_Harvest_Ratio
+hr_data <- initialize_data(model, Target_Harvest_Ratio)
 
-modified_activity_multiplier <- solve_activity_multiplier_nnls(Equations_Matrix, Target_HR)
-  
-x <- residue_sum_of_squares(Equations_Matrix, modified_activity_multiplier, Target_HR)
-rss_values <- c(rss_values, x)
+rss_values <- numeric(10)
+labels <- c("None", 1:9)
 
-for (i in 1:9) {
+for (i in 0:9) {
 
-  
-  Equations_Matrix <- hr_data$Equations_Matrix
-  Target_HR <- hr_data$Target_Harvest_Ratio
-  
-  Equations_Matrix <- reduce_hr_matrix(Equations_Matrix, i)
-  Target_HR <- reduce_target_hr(Target_HR, i)
+  if (i == 0) {
+    Equations_Matrix <- hr_data$Equations_Matrix
+    Target_HR <- hr_data$Target_Harvest_Ratio
+  } else {
+    Equations_Matrix <- reduce_hr_matrix(hr_data$Equations_Matrix, i)
+    Target_HR <- reduce_target_hr(hr_data$Target_Harvest_Ratio, i)
+  }
   
   modified_activity_multiplier <- solve_activity_multiplier_nnls(Equations_Matrix, Target_HR)
   
-  x <- residue_sum_of_squares(Equations_Matrix, modified_activity_multiplier, Target_HR)
-  
-  var <- c(var, i)
-  rss_values <- c(rss_values, x)
+  rss_values[i+1] <- residue_sum_of_squares(Equations_Matrix, modified_activity_multiplier, Target_HR)
 }
 
 
 barplot(rss_values,
-        names.arg = var,
+        names.arg = labels,
         main = "My Bar Graph",
         xlab = "Category",
-        ylab = "Value")
+        ylab = "RSS Value")
 
 
 
@@ -313,10 +325,51 @@ barplot(rss_values,
 
 ```{r}
 
-input_power_output_rss <- function(power) {
-  
-}
-
+# calculate_final_rss <- function(model, target_hr) {
+#   
+#   hr_data <- initialize_data(model, target_hr)
+#   
+#   modified_activity_multiplier <- solve_activity_multiplier_nnls(
+#     hr_data$Equations_Matrix,
+#     hr_data$Target_Harvest_Ratio
+#   )
+#   
+#   residue_sum_of_squares(
+#     hr_data$Equations_Matrix,
+#     modified_activity_multiplier,
+#     hr_data$Target_Harvest_Ratio
+#   )
+# }
+# 
+# 
+# sensitivity_matrix <- matrix(
+#   0,
+#   nrow = 12,
+#   ncol = 9
+# )
+# 
+# Target_Harvest_Ratio <- c(0.0001, 0.0004, 0.002, 0.0004, 0.0003, 0.0005, 0.00008, 0.000002, 0.001, 0)
+# 
+# epsilon <- 1e-6
+# 
+# base_rss <- calculate_final_rss(model, Target_Harvest_Ratio)
+# 
+# for (i in seq_len('12')) {
+#   for (j in seq_len('9')) {
+#     
+#     perturbed_model <- model
+#     
+#     perturbed_model$data$fleet.model$gear_group_rel_power[i, j] <- perturbed_model$data$fleet.model$gear_group_rel_power[i, j] + epsilon
+#     
+#     new_rss <- calculate_final_rss(
+#       perturbed_model,
+#       Target_Harvest_Ratio
+#     )
+#     
+#     sensitivity_matrix[i, j] <- (new_rss - base_rss) / epsilon
+#     
+#   }
+# }
 
 ```
 
