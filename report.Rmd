@@ -9,17 +9,21 @@ output: html_document
 
 ### Overview
 
+<br><br>
+
 #### Aim
+
+<br><br>
 
 The Harvest Ratio is the proportion of average biomass captured per unit time. It is calculated by both Activity and Power of the fishing gear.
 
 The initial Goal of the project was to create a program that calculates the required Activity multiplier for a specific input target harvest ratio, without running the program.
 
-This is important because \_\_\_
-
 <br><br>
 
 ### 1 Main Program
+
+<br><br>
 
 #### Background
 
@@ -70,30 +74,22 @@ HR_2 \\
 HR_{10}
 \end{bmatrix}$$
 
-The program attempts to find the activity multipliers, by setting vector **y** to the target harvest ratios, and then solving equation 2. Generally since there are only 10 equations compared to 12 variables, this equation should be underconstrained and thus an infinite number of solutions, but since activity multipliers have to be greater than zero there might not always be solutions.
+The program attempts to find the activity multipliers, by setting vector **y** to the target harvest ratios, and then solving equation 2. Although the linear system is underdetermined (10 equations and 12 unknowns), the activity multipliers must be non-negative, which restricts any feasable solution.
 
 <br><br>
 
 #### Program Setup
 
-The following code block loads in all relevant libraries and gets the model from StrathE2E2
+The following code block loads in all relevant libraries.
 
 ```{r, message = FALSE}
 
 source("functions.R")
 library(nnls)
 library(bvls)
-
 library(StrathE2E2)
+
 model <- e2e_read("North_Sea","2003-2013")
-# results <- e2e_run(model,nyears=3)
-
-Harvest_Ratio <- F_calc_func_2(model)
-Target_Harvest_Ratio <- c(0.0001, 0.0004, 0.002, 0.0004, 0.0003, 0.0005, 0.00008, 0.000002, 0.001, 0)
-
-# Activity <- model$data$fleet.model$gear_activity
-Power <- model$data$fleet.model$gear_group_rel_power
-# Activity_Multiplier <- model$data$fleet.model$gear_mult
 
 ```
 
@@ -101,60 +97,42 @@ Power <- model$data$fleet.model$gear_group_rel_power
 
 #### Generate System of equations
 
-<br><br>
-
 The following code contains functions that generate matrix **M**. This is achieved by setting all activity multipliers $a_2$, $a_3$ ... $a_{12}$ to zero while maintaining $a_1$ = 1, and then calculates the resultant harvest ratio values. These calculated value correspond to $A_1$, $A_2$, $A_3$ ... $A_{10}$. The process is repeated for each activity multiplier in turn, allowing for matrix **M** to be constructed.
 
-Additionally, the code checks for guilds which <!-- ''' have all zero values and thus cannot have a hr value, and then removes the relavent row from the matrix and from the target harvest ratio. ''' To improve -->
+Additionally, the code identifies guilds with all-zero power values, for which a non-zero harvest ratio cannot be obtained. The corresponding rows are subsequently removed from both matrix **M** and the target harvest ratio vector **y**.
 
 <br><br>
 
 ```{r}
 
-
-find_HR_matrix_components <- function(target_activity_index, temperary_model) {
-  
-  number_of_gears = 12
-  
-  temperary_activity <- numeric(number_of_gears)
-  temperary_activity[target_activity_index] <- 1
-  temperary_model$data$fleet.model$gear_mult <- temperary_activity
-  
-  F_calc_func_2(temperary_model)
-}
-
-reduce_hr_matrix <- function(hr_matrix, deleted_rows_index) {
-  hr_matrix[-deleted_rows_index, ]
-}
-
-reduce_target_hr <- function(target_hr, deleted_rows_index) {
-  target_hr[-deleted_rows_index]
-}
-
-find_HR_matrix <- function(temperary_model) {
-  
-  number_of_gears = 12
-  
-  hr_matrix <- sapply(1:number_of_gears, function(gear_id) {
-    hr_components <- find_HR_matrix_components(gear_id, temperary_model)
+find_matrix_M <- function(model) {
+  hr_matrix <- sapply(1:12, function(gear_id) {
+    temporary_model <- model
+    
+    activity <- numeric(12)
+    activity[gear_id] <- 1
+    
+    temporary_model$data$fleet.model$gear_mult <- activity
+    
+    F_calc_func_2(temporary_model)
   })
+}
+
+initialize_data <- function(model, target_harvest_ratio) {
+  
+  temporary_model <- model
+  
+  hr_matrix <- find_matrix_M(temporary_model)
   
   zero_hr_guilds <- which(rowSums(hr_matrix != 0) == 0)
   
-  list(
-    hr_matrix = hr_matrix,
-    zero_hr_guilds = zero_hr_guilds
-  )
-}
-
-initialize_data <- function(model, Target_Harvest_Ratio) {
-
-  matrix_data <- find_HR_matrix(model)
+  hr_matrix <- hr_matrix[-zero_hr_guilds,]
+  target_harvest_ratio <- target_harvest_ratio[-zero_hr_guilds]
   
   list(
-    Target_Harvest_Ratio = reduce_target_hr(Target_Harvest_Ratio, matrix_data$zero_hr_guilds),
-    Equations_Matrix = reduce_hr_matrix(matrix_data$hr_matrix, matrix_data$zero_hr_guilds),
-    zero_hr_guilds = matrix_data$zero_hr_guilds
+    Equations_Matrix = hr_matrix,
+    Target_Harvest_Ratio = target_harvest_ratio,
+    zero_hr_guilds = zero_hr_guilds
   )
 }
 
@@ -162,7 +140,27 @@ initialize_data <- function(model, Target_Harvest_Ratio) {
 
 <br><br>
 
-#### Solve System of equations
+#### Sum of Residual Squares vs Cosine Similarity
+
+<br><br>
+
+The sum of squared resisiduals (SSR) measures the total squared difference between the predicted and observed values. It is defined as:
+
+$$SSR = \sum_{i=1}^{n}(y_i-\hat{y}_i)^2$$
+
+where $y_i$ are the target values and $\hat{y}_i$ are the corresponding model predictions. A smaller SSR indicates that the predicted values are numerically closer to the observations. Because the residuals are squared, larger errors are penalised more heavily than smaller ones, making SSR particularly sensitive to outliers.
+
+One advantage of SSR is that it is widely used and supported by many optimisation and statistical packages in R.
+
+In contrast, cosine similarity measures the angle between two vectors rather than the distance between them. It is defined as:
+
+$$\cos(\theta) = \frac{y \cdot \hat{y}}{|y| |\hat{y}|}$$
+
+where **y** and **$\hat{y}$** are the target and predicted vectors, respectively. Cosine similarity ranges from 0 to 1 for non-negative vectors, with value 1 indicating that the vectors have exactly the same direction.
+
+<br><br>
+
+#### Solving System of equations by minimising SSR
 
 <br><br>
 
@@ -182,27 +180,38 @@ where **A** is the coefficient matrix, **x** is the vector of activity multiplie
 
 ```{r}
 
-solve_activity_multiplier_nnls <- function(hr_matrix, target_hr) {
-  modified_activity_multiplier <- coef(nnls(hr_matrix, target_hr))
+solve_nnls <- function(M, y) {
+  
+  solution <- nnls(M, y)
+  
+  list(
+    x = coef(solution),
+    SSR = sum(residuals(solution)^2)
+  )
 }
 
 ```
 
 <br><br>
 
-#### Sum of Residual Squares vs Cosine Similarity
+#### Solving System of equations by maximising cosine similarity
 
-The sum of squared resisiduals (SSR) measures the total squared difference between the predicted and observed values. It is defined as:
+<br><br>
 
-$$SSR = \sum_{i=1}^{n}(y_i-\hat{y}_i)^2$$
 
-where $y_i$ are the target values and $\hat{y}_i$ are the corresponding model predictions. A smaller SSR indicates that the predicted values are numerically closer to the observations. Because the residuals are squared, larger errors are penalised more heavily than smaller ones, making SSR particularly sensitive to outliers.
+```{r}
 
-In contrast, cosine similarity measures the angle between two vectors rather than the distance between them. It is defined as:
+cosine_similarity <- function(x, y) {
+  norm_x <- sqrt(sum(x^2))
+  norm_y <- sqrt(sum(y^2))
+  
+  cos_sim <- sum(x * y) / (norm_x * norm_y)
+  return(cos_sim)
+}
 
-$$\cos(\theta) = \frac{y \cdot \hat{y}}{|y| |\hat{y}|}$$
 
-where **y** and $\hat{y}$ are the target and predicted vectors, respectively. Cosine similarity ranges from 0 to 1 for non-negative vectors, with value 1 indicating that the vectors have exactly the same direction.
+```
+
 
 <br><br>
 
@@ -223,11 +232,6 @@ check_if_exact_solution <- function(final_activity_multiplier, harvest_ratio_mat
   norm(residual, type = "2") < tolerance
 }
 
-residue_sum_of_squares <- function(hr_matrix, modified_activity_multiplier, target_harvest_ratio) {
-  residuals <- target_harvest_ratio - hr_matrix %*% modified_activity_multiplier
-  sum(residuals^2)
-}
-
 ```
 
 <br><br>
@@ -237,124 +241,58 @@ residue_sum_of_squares <- function(hr_matrix, modified_activity_multiplier, targ
 <br><br>
 
 ```{r}
-Target_Harvest_Ratio <- c(0.0001, 0.0004, 0.002, 0.0004, 0.0003, 0.0005, 0.00008, 0.000002, 0.001, 0)
 
-hr_data <- initialize_data(model, Target_Harvest_Ratio)
-
-Equations_Matrix <- hr_data$Equations_Matrix
-Target_Harvest_Ratio <- hr_data$Target_Harvest_Ratio
-zero_hr_guilds <- hr_data$zero_hr_guilds
-
-print(paste("There are zero harvest ratios at rows:", zero_hr_guilds))
-
-modified_activity_multiplier <- solve_activity_multiplier_nnls(Equations_Matrix, Target_Harvest_Ratio)
-print("The modified activity multiplier is:")
-print(modified_activity_multiplier)
-print(" ")
-
-has_exact_solution <- check_if_exact_solution(modified_activity_multiplier, Equations_Matrix, Target_Harvest_Ratio)
-
-if (has_exact_solution) {
-  print("We found an exact solution")
-} else {
-  SSR <- residue_sum_of_squares(
-    Equations_Matrix,
-    modified_activity_multiplier,
-    Target_Harvest_Ratio
-  )
-  print(paste("There are NO exact solutions but the closest we got has a residual sum of squares of", SSR))
-}
-
-modified_hr <- find_modified_hr(model, modified_activity_multiplier)
-print("There was a final harvest ratio value of:")
-print(modified_hr)
-print(" ")
+# Target_Harvest_Ratio <- F_calc_func_2(model) * runif(10, min = 0, max = 10)
+# 
+# hr_data <- initialize_data(model, Target_Harvest_Ratio)
+# 
+# Equations_Matrix <- hr_data$Equations_Matrix
+# Target_Harvest_Ratio <- hr_data$Target_Harvest_Ratio
+# zero_hr_guilds <- hr_data$zero_hr_guilds
+# 
+# print(paste("There are zero harvest ratios at rows:", zero_hr_guilds))
+# 
+# nnls <- solve_nnls(Equations_Matrix, Target_Harvest_Ratio)
+# 
+# modified_activity_multiplier <- nnls$x
+# print("The modified activity multiplier is:")
+# print(modified_activity_multiplier)
+# print(" ")
+# 
+# has_exact_solution <- check_if_exact_solution(modified_activity_multiplier, Equations_Matrix, Target_Harvest_Ratio)
+# 
+# if (has_exact_solution) {
+#   print("We found an exact solution")
+# } else {
+#   print(paste("There are NO exact solutions but the closest we got has a residual sum of squares of", nnls$SSR))
+# }
+# 
+# modified_hr <- find_modified_hr(model, modified_activity_multiplier)
+# print("There was a final harvest ratio value of:")
+# print(modified_hr)
+# print(" ")
+# print(paste("The cosine similarity it", cosine_similarity(modified_hr, hr_data$Target_Harvest_Ratio)))
 
 ```
 
 <br><br>
 
-### 2 Sensitivity Analysis of Target Harvest Ratio affecting Sum of Residual Squares
+### 2 Sensitivity Analysis of Harvest Ratio Constraints
 
 <br><br>
 
-#### Effect of Removing Harvest Ratio Constraints on Solution Accuracy
+This section examines the sensitivity and robustness of the optimisation model by evaluating how changes to harvest ratio constraints influence solution accuracy. A series of analyses were performed to determine how the removal of individual constraints, modification of target harvest ratios, and simultaneous changes to multiple targets affect the ability of the non-negative least squares (NNLS) algorithm to identify solutions that satisfy the model constraints. These analyses provide insight into the relative importance of individual harvest ratio constraints and the conditions under which exact solutions can be achieved.
 
-To investigate the conditions under which the model produced an exact solution, a sensitivity analysis was performed by systematically removing individual harvest ratio constraints and rerunning the program. The purpose was to determine how the availability of constraints influences the ability of the nnls algorithm to find an exact solution.
-
-The program was run multiple times, with one harvest ratio condition removed during each run while all other model parameters were kept unchanged. For each scenario, the resultant solution was evaluated using the Sum of Squared Residuals (SSR). A value of SSR equal to zero indicates that the model was able to find an exact solution. Conversely, a non-zero SSR indicates that an exact solution is impossible to be achieved and that the algorithm identified the closest non-negative least-squares solution instead.
-
-The resulting SSR values were plotted against the harvest ratio condition removed to visualise how each constraint influenced the solvability of the system. This bar graph is shown below:
+The following code initialises the data required for this section. A randomly perturbed target harvest ratio was generated to provide an alternative starting condition for the sensitivity analysis.
 
 ```{r, fig.align="center"}
 
 Target_Harvest_Ratio <- F_calc_func_2(model) * runif(10, min = 0, max = 10)
 
 hr_data <- initialize_data(model, Target_Harvest_Ratio)
-ssr_values <- numeric(10)
-labels <- c("None", 1:9)
 
-for (i in 0:9) {
-
-  if (i == 0) {
-    Equations_Matrix <- hr_data$Equations_Matrix
-    Target_HR <- hr_data$Target_Harvest_Ratio
-  } else {
-    Equations_Matrix <- hr_data$Equations_Matrix[-i, ]
-    Target_HR <- hr_data$Target_Harvest_Ratio[-i]
-  }
-  
-  modified_activity_multiplier <- solve_activity_multiplier_nnls(Equations_Matrix, Target_HR)
-  
-  ssr_values[i+1] <- residue_sum_of_squares(Equations_Matrix, modified_activity_multiplier, Target_HR)
-}
-
-
-barplot(ssr_values,
-        col = "#9ECAE1",
-        names.arg = labels,
-        main = "Effect of Removing Harvest Ratio Constraints \n on Non-Negative Least Squares Solution Error",
-        xlab = "Harvest Ratio Constraint Removed",
-        ylab = "Sum of Squared Residuals (SSR)")
-
-
-
-```
-
-<br><br>
-
-#### Sensitivity to Changes in the Target Harvest Ratio
-
-To investigate how sensitive the optimisation is to changes in the target harvest ratio, each guild was examined individually. The aim was to determine how altering the target harvest ratio for a single guild affects the quality of the best-fitting solution.
-
-First, the original harvest ratios were calculated and used as the baseline target harvest ratios. For each guild in turn, its target harvest ratio was varied across a range of values while the target harvest ratios for all other guilds were kept fixed.
-
-For each modified target harvest ratio, the optimisation was rerun to determine the activity multipliers that most closely achieved the specified target. The resulting solution was then evaluated by calculating the sum of squared residuals (SSR) between the achieved harvest ratios and the original harvest ratios.
-
-The figures below show how the SSR changes as the target harvest ratio for each guild is varied. The verticle red dashed line indicates the original harvest ratio for that guild. Lower SSR values indicate solutions that remain close to the original harvest ratios, while larger values indicate that the modified target harvest ratio is increasingly difficult to satisfy without deviating from the original solution.
-
-<!-- <br><br> -->
-
-<!-- echo=FALSE, -->
-
-```{r, fig.width=18, fig.height=12}
-
-
-change_one_target <- function(model, Equations_Matrix, Target_Harvest_Ratio) {
-
-  modified_activity_multiplier <- solve_activity_multiplier_nnls(
-    Equations_Matrix,
-    Target_Harvest_Ratio
-  )
-
-  SSR <- residue_sum_of_squares(
-    Equations_Matrix,
-    modified_activity_multiplier,
-    Target_Harvest_Ratio
-  )
-
-  return(SSR)
-}
+excluded_guilds <- hr_data$zero_hr_guilds
+available_guilds <- setdiff(1:10, excluded_guilds)
 
 grouplabels <- c(
     "Planktivorous fish",
@@ -365,31 +303,89 @@ grouplabels <- c(
     "Zooplankton_carn",
     "Birds",
     "Pinnipeds",
-    "Cetaceans"
+    "Cetaceans",
+    "Macrophytes"
   )
 
-Harvest_Ratio <- Target_Harvest_Ratio
+grouplabels <- setdiff(grouplabels, excluded_guilds)
 
-hr_data <- initialize_data(model, Harvest_Ratio)
+```
+
+<br><br>
+
+#### Effect of Removing Harvest Ratio Constraints on Solution Accuracy
+
+<br><br>
+
+To investigate the conditions under which the model produced an exact solution, a sensitivity analysis was performed by systematically removing individual harvest ratio constraints and rerunning the program. The purpose was to determine how the availability of constraints influences the ability of the nnls algorithm to find an exact solution.
+
+The program was run multiple times, with one harvest ratio condition removed during each run while all other model parameters were kept unchanged. For each scenario, the resultant solution was evaluated using the Sum of Squared Residuals (SSR). A value of SSR equal to zero indicates that the model was able to find an exact solution. Conversely, a non-zero SSR indicates that an exact solution is impossible to be achieved and that the algorithm identified the closest non-negative least-squares solution instead.
+
+The resulting SSR values were plotted against the harvest ratio condition removed to visualise how each constraint influenced the solvability of the system. This bar graph is shown below:
+
+```{r, fig.align="center"}
+
+
+guild_labels <- c("None", available_guilds)
+
+ssr_values <- sapply(c(0, available_guilds), function(i) {
+  
+  if (i == 0) {
+    Equations_Matrix <- hr_data$Equations_Matrix
+    Target_HR <- hr_data$Target_Harvest_Ratio
+  } else {
+    Equations_Matrix <- hr_data$Equations_Matrix[-i, ]
+    Target_HR <- hr_data$Target_Harvest_Ratio[-i]
+  }
+  
+  nnls <- solve_nnls(Equations_Matrix, Target_HR)
+  nnls$SSR
+  
+})
+
+
+barplot(ssr_values,
+        col = "#9ECAE1",
+        names.arg = guild_labels,
+        main = "Effect of Removing Harvest Ratio Constraints \n on Non-Negative Least Squares Solution Error",
+        xlab = "Harvest Ratio Guild Removed",
+        ylab = "Sum of Squared Residuals (SSR)")
+
+
+
+```
+
+<br><br>
+
+#### Sensitivity to Changes in the Target Harvest Ratio
+
+<br><br>
+
+To investigate how sensitive the optimisation is to changes in the target harvest ratio, each guild was examined individually. The aim was to determine how altering the target harvest ratio for a single guild affects the quality of the best-fitting solution.
+
+First, the original harvest ratios were calculated and used as the baseline target harvest ratios. For each guild in turn, its target harvest ratio was varied across a range of values while the target harvest ratios for all other guilds were kept fixed.
+
+For each modified target harvest ratio, the optimisation was rerun to determine the activity multipliers that most closely achieved the specified target. The resulting solution was then evaluated by calculating the sum of squared residuals (SSR) between the achieved harvest ratios and the original harvest ratios.
+
+The figures below show how the SSR changes as the target harvest ratio for each guild is varied. The verticle red dashed line indicates the original harvest ratio for that guild. Lower SSR values indicate solutions that remain close to the original harvest ratios, while larger values indicate that the modified target harvest ratio is increasingly difficult to satisfy without deviating from the original solution.
+
+```{r, fig.width=18, fig.height=12}
 
 par(mfrow = c(3, 3))
 
-for (i in 1:9) {
+for (i in 1:length(available_guilds)) {
   
-  original_targets <- hr_data$Target_Harvest_Ratio
+  original_target <- hr_data$Target_Harvest_Ratio
   
-  x_values <- seq(0, Harvest_Ratio[i]*20, length.out = 2000)
+  x_values <- seq(0, original_target[i]*2, length.out = 2000)
   
-  y_values <- sapply(x_values, function(v) {
+  y_values <- sapply(x_values, function(value) {
     
-    test_targets <- original_targets
-    test_targets[i] <- v
+    modified_targets <- hr_data$Target_Harvest_Ratio
+    modified_targets[i] <- value
     
-    change_one_target(
-      model,
-      hr_data$Equations_Matrix,
-      test_targets
-    )
+    nnls <- solve_nnls(hr_data$Equations_Matrix, modified_targets)
+    SSR <- nnls$SSR
   })
   
   plot(
@@ -399,14 +395,11 @@ for (i in 1:9) {
     main = paste("Sensitivity of", grouplabels[i]),
     xlab = "Target Harvest Ratios",
     ylab = "Sum of Squared Residuals",
-     ylim = c(0, max(y_values))
   )
   
+  abline(v = original_target[i], col = "red", lty = 5)
   grid()
-  abline(v = Harvest_Ratio[i], col = "red", lty = 5)
 }
-
-
 
 
 ```
@@ -415,64 +408,89 @@ The results show that at the point where ____.
 
 <br><br>
 
+#### Sensitivity to Changes in the Target Harvest Ratio On the same graph
+
+<br><br>
+
 ```{r, fig.align="center"}
 
-Harvest_Ratio <- F_calc_func_2(model) * runif(10, min = 0, max = 100)
-hr_data <- initialize_data(model, Harvest_Ratio)
-
-# modified_activity_multiplier <- solve_activity_multiplier_nnls(
-#   hr_data$Equations_Matrix,
-#   hr_data$Target_Harvest_Ratio)
+# grouplabels <- c(
+#   "Planktivorous fish",
+#   "Demersal fish",
+#   "Migratory fish",
+#   "Benthos_susp-dep",
+#   "Benthos_carn-scav",
+#   "Zooplankton_carn",
+#   "Birds",
+#   "Pinnipeds",
+#   "Cetaceans",
+#   "Macrophytes"
+# )
 # 
-# has_exact_solution <- check_if_exact_solution(modified_activity_multiplier, hr_data$Equations_Matrix, hr_data$Target_Harvest_Ratio)
+# grouplabels <- setdiff(grouplabels, excluded_guilds)
 # 
-# if (has_exact_solution) {
-#   print("We found an exact solution")
-# } else {
-#   SSR <- residue_sum_of_squares(
-#     hr_data$Equations_Matrix,
-#     modified_activity_multiplier,
-#     hr_data$Target_Harvest_Ratio
+# original_targets <- hr_data$Target_Harvest_Ratio
+# 
+# # Store results
+# sensitivity_results <- list()
+# 
+# for (i in seq_along(available_guilds)) {
+#   
+#   x_values <- seq(0, original_targets[i] * 2, length.out = 2000)
+#   
+#   y_values <- sapply(x_values, function(value) {
+#     
+#     modified_targets <- original_targets
+#     modified_targets[i] <- value
+#     
+#     nnls <- solve_nnls(hr_data$Equations_Matrix, modified_targets)
+#     nnls$SSR
+#   })
+#   
+#   sensitivity_results[[i]] <- list(
+#     x = x_values,
+#     y = y_values
 #   )
-# print(paste("There are NO exact solutions but the closest we got has a residual sum of squares of", SSR))
 # }
-
-x_range <- max(Harvest_Ratio)
-print(x_range)
-
-cols <- rainbow(9)
-
-for (i in 1:9) {
-  x_values <- seq(0, x_range, length.out = 2000)
-  
-  y_values <- sapply(x_values, function(v) {
-    temp_target <- hr_data$Target_Harvest_Ratio
-    temp_target[i] <- v
-    change_one_target(model, hr_data$Equations_Matrix, temp_target)
-  })
-  
-  
-  if ( i == 1 ) {
-    plot(
-      x_values,
-      y_values,
-      col = cols[i],
-      type = "l",
-      main = "Sensitivity of changing Target Harvest Ratio",
-      xlab = "Target Harvest Ratios",
-      ylab = "Sum of Squared Residuals")
-    grid()
-  } else {
-    lines(x_values, y_values, col = cols[i], lty = i)
-    }}
-
-legend(
-  "topleft",
-  legend = grouplabels,
-  col = cols,
-  lty = 1:9,
-)
-
+# 
+# # Find common axis limits
+# xlim <- range(sapply(sensitivity_results, function(z) z$x))
+# ylim <- range(sapply(sensitivity_results, function(z) z$y))
+# 
+# # Create empty plot
+# plot(
+#   NA,
+#   xlim = xlim,
+#   ylim = ylim,
+#   xlab = "Target Harvest Ratios",
+#   ylab = "Sum of Squared Residuals",
+#   main = "Sensitivity of all guilds"
+# )
+# 
+# # Add curves
+# for (i in seq_along(sensitivity_results)) {
+#   
+#   lines(
+#     sensitivity_results[[i]]$x,
+#     sensitivity_results[[i]]$y,
+#     lwd = 2
+#   )
+#   
+#   abline(
+#     v = original_targets[i],
+#     col = "grey",
+#     lty = 5
+#   )
+# }
+# 
+# legend(
+#   "topright",
+#   legend = grouplabels,
+#   lty = 1,
+#   cex = 0.7
+# )
+# 
+# grid()
 
 ```
 
@@ -480,15 +498,13 @@ legend(
 
 #### 2 Variable sensitivity analysis
 
+<br><br>
+
 ```{r, fig.align="center"}
 
-Harvest_Ratio <- F_calc_func_2(model)
 
-hr_data <- initialize_data(model, Harvest_Ratio)
-
-
-index1_values <- seq(0, Harvest_Ratio[1]*2, length.out = 100)
-index2_values <- seq(0, Harvest_Ratio[2]*2, length.out = 100)
+index1_values <- seq(0, hr_data$Target_Harvest_Ratio[1]*2, length.out = 100)
+index2_values <- seq(0, hr_data$Target_Harvest_Ratio[2]*2, length.out = 100)
 
 output_matrix <- matrix(
   nrow = length(index2_values),
@@ -503,7 +519,8 @@ for (i in seq_along(index1_values)) {
     temp_thr[1] <- index1_values[i]
     temp_thr[2] <- index2_values[j]
     
-    output_matrix[j, i] <- change_one_target(model, hr_data$Equations_Matrix, temp_thr)
+    nnls <- solve_nnls(hr_data$Equations_Matrix, temp_thr)
+    output_matrix[j, i] <- nnls$SSR
   }
 }
 
@@ -519,15 +536,15 @@ image(
   main = "SSR heatmap"
 )
 
-
-
 points(
-  Harvest_Ratio[1],
-  Harvest_Ratio[2],
+  hr_data$Target_Harvest_Ratio[1],
+  hr_data$Target_Harvest_Ratio[2],
   pch = 19,
   col = "lightblue",
   cex = 1.5
 )
+
+
 
 graph <- persp(
   x = index1_values,
@@ -543,8 +560,8 @@ graph <- persp(
   main = "3D graph"
 )
 
-Target_Harvest_Ratio <- reduce_target_hr(Harvest_Ratio, hr_data$zero_hr_guilds)
-point_z <-  change_one_target(model, hr_data$Equations_Matrix, Target_Harvest_Ratio)
+Harvest_Ratio <- hr_data$Target_Harvest_Ratio
+point_z <-  solve_nnls(hr_data$Equations_Matrix, Harvest_Ratio)$SSR
 
 points(
   trans3d(Harvest_Ratio[1], Harvest_Ratio[2], point_z, graph),
@@ -554,8 +571,6 @@ points(
 )
 
 ```
-
-<br><br>
 
 From the bar graph we can see that by removing constraints 1, 3, 6, or 7 we can achieve an exact solution.
 
@@ -569,18 +584,21 @@ The following code defines the optimisation function using the bvls package. The
 
 ```{r}
 
-upper_bound_solution <- function(hr_matrix, target_harvest_ratio, upper_bound) {
+upper_bound_solution <- function(M, y, upper_bound) {
   
   lower_bound <- rep(0, 12)
   
   fit <- bvls(
-    hr_matrix,
-    target_harvest_ratio,
+    M,
+    y,
     bl = lower_bound,
     bu = upper_bound
   )
   
-  modified_activity_multiplier <- fit$x
+  list(
+    x = coef(solution),
+    SSR = sum(residuals(solution)^2)
+  )
 }
 
 
@@ -590,35 +608,35 @@ upper_bound_solution <- function(hr_matrix, target_harvest_ratio, upper_bound) {
 
 ```{r, fig.align="center"}
 
-Target_Harvest_Ratio <- c(0.0001, 0.0004, 0.002, 0.0004, 0.0003, 0.0005, 0.00008, 0.000002, 0.001, 0)
-
-hr_data <- initialize_data(model, Target_Harvest_Ratio)
-Equations_Matrix <- hr_data$Equations_Matrix
-Target_Harvest_Ratio <- hr_data$Target_Harvest_Ratio
-
-
-x_values <- seq(0, 400, length.out = 2000)
-
-y_values <- sapply(x_values, function(upper_bound) {
-  residue_sum_of_squares(
-    hr_matrix = Equations_Matrix,
-    modified_activity_multiplier = upper_bound_solution(Equations_Matrix, Target_Harvest_Ratio, rep(upper_bound, 12)),
-    target_harvest_ratio = Target_Harvest_Ratio
-  )
-})
-
-log_y <- lapply(y_values, log)
-
-plot(x_values, log_y,
-     type = "l",
-     xlab = "Upper Bound Values",
-     ylab = "Log of Sum of Residue Squares",
-     main = "Upper Bound values vs RSS")
-
-abline(h = log(SSR), col = "red", lty = 5, lwd = 2)
-
-grid()
+# Target_Harvest_Ratio <- c(0.0001, 0.0004, 0.002, 0.0004, 0.0003, 0.0005, 0.00008, 0.000002, 0.001, 0)
+# 
+# hr_data <- initialize_data(model, Target_Harvest_Ratio)
+# Equations_Matrix <- hr_data$Equations_Matrix
+# Target_Harvest_Ratio <- hr_data$Target_Harvest_Ratio
+# 
+# x_values <- seq(0, 400, length.out = 2000)
+# 
+# y_values <- sapply(x_values, function(upper_bound) {
+#   residue_sum_of_squares(
+#     hr_matrix = Equations_Matrix,
+#     modified_activity_multiplier = upper_bound_solution(Equations_Matrix, Target_Harvest_Ratio, rep(upper_bound, 12)),
+#     target_harvest_ratio = Target_Harvest_Ratio
+#   )
+# })
+# 
+# log_y <- lapply(y_values, log)
+# 
+# plot(x_values, log_y,
+#      type = "l",
+#      xlab = "Upper Bound Values",
+#      ylab = "Log of Sum of Residue Squares",
+#      main = "Upper Bound values vs RSS")
+# 
+# # abline(h = log(SSR), col = "red", lty = 5, lwd = 2)
+# 
+# grid()
 
 ```
+
 
 ### Power sensitivity analysis
