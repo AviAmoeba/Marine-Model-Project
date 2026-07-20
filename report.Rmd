@@ -1,31 +1,29 @@
 ---
 title: "StrathE2E2 Project"
 author: "Avinash Pothuri"
-date: "  "
+date: "`r Sys.Date()`"
 output: html_document
 ---
 
 <br><br>
 
-### Overview
+## Overview
 
 <br><br>
 
-#### Aim
+### Aim
 
-<br><br>
+This project develops an optimisation framework for determining fishing gear activity multipliers required to achieve specific harvest ratios within the StrathE2E2 ecosystem model. 
 
 The Harvest Ratio is the proportion of average biomass captured per unit time. It is calculated by both Activity and Power of the fishing gear.
 
-The initial Goal of the project was to create a program that calculates the required Activity multiplier for a specific input target harvest ratio, without running the program.
+<br><br>
+
+## 1 Main Program
 
 <br><br>
 
-### 1 Main Program
-
-<br><br>
-
-#### Background
+### Background
 
 For each fishing guild, the harvest ratio is given by aggregating the contribution of all individual fishing gears. This relationship for the first guilds harvest ratio is shown in Equation 1:
 
@@ -42,11 +40,13 @@ A similar equation can be found for all 10 fishing guilds, and thus altogether c
 
 $$ 
 \mathbf{M} \ \mathbf{x} \ = \ \mathbf{y}
-\tag{2}$$
+\tag{2}
+$$
 
-Where **M** represents the contribution matrix, with each row corresponding to a fishing guild and each column corresponding to an individual fishing gear. The vector **x** contains the activity multipliers for the fishing gears, while **y** contains the resulting harvest ratios for each fishing guild.
+Where **M** represents the contribution matrix, with each row corresponding to a fishing guild and each column corresponding to an individual fishing gear. The vector **x** contains the activity multipliers for the fishing gears, while the vector **y** represents the desired harvest ratios for each fishing guild and defines the optimisation target that the activity multipliers must achieve.
 
-$$\mathbf{M} =
+$$
+\mathbf{M} =
 \begin{bmatrix}
 A_1 & B_1 & . & . & . & L_1 \\
 A_2 & B_2 & . & . & . & L_2 \\
@@ -72,19 +72,24 @@ HR_2 \\
 . \\
 . \\
 HR_{10}
-\end{bmatrix}$$
+\end{bmatrix}
+$$
 
 The program attempts to find the activity multipliers, by setting vector **y** to the target harvest ratios, and then solving equation 2. Although the linear system is underdetermined (10 equations and 12 unknowns), the activity multipliers must be non-negative, which restricts any feasable solution.
 
 <br><br>
 
-#### Program Setup
+### Program Setup
 
 The following code block loads in all relevant libraries.
+
+<br><br>
 
 ```{r, message = FALSE}
 
 source("functions.R")
+
+library(nloptr)
 library(nnls)
 library(bvls)
 library(StrathE2E2)
@@ -95,7 +100,7 @@ model <- e2e_read("North_Sea","2003-2013")
 
 <br><br>
 
-#### Generate System of equations
+### Generate System of equations
 
 The following code contains functions that generate matrix **M**. This is achieved by setting all activity multipliers $a_2$, $a_3$ ... $a_{12}$ to zero while maintaining $a_1$ = 1, and then calculates the resultant harvest ratio values. These calculated value correspond to $A_1$, $A_2$, $A_3$ ... $A_{10}$. The process is repeated for each activity multiplier in turn, allowing for matrix **M** to be constructed.
 
@@ -106,8 +111,10 @@ Additionally, the code identifies guilds with all-zero power values, for which a
 ```{r}
 
 find_matrix_M <- function(model) {
+  
+  temporary_model <- model
+  
   hr_matrix <- sapply(1:12, function(gear_id) {
-    temporary_model <- model
     
     activity <- numeric(12)
     activity[gear_id] <- 1
@@ -120,9 +127,7 @@ find_matrix_M <- function(model) {
 
 initialize_data <- function(model, target_harvest_ratio) {
   
-  temporary_model <- model
-  
-  hr_matrix <- find_matrix_M(temporary_model)
+  hr_matrix <- find_matrix_M(model)
   
   zero_hr_guilds <- which(rowSums(hr_matrix != 0) == 0)
   
@@ -140,9 +145,7 @@ initialize_data <- function(model, target_harvest_ratio) {
 
 <br><br>
 
-#### Sum of Residual Squares vs Cosine Similarity
-
-<br><br>
+### Sum of Residual Squares vs Cosine Similarity
 
 The sum of squared resisiduals (SSR) measures the total squared difference between the predicted and observed values. It is defined as:
 
@@ -152,17 +155,17 @@ where $y_i$ are the target values and $\hat{y}_i$ are the corresponding model pr
 
 One advantage of SSR is that it is widely used and supported by many optimisation and statistical packages in R.
 
-In contrast, cosine similarity measures the angle between two vectors rather than the distance between them. It is defined as:
+In contrast, cosine similarity measures the cosine of the angle between two vectors rather than the distance between them. It is defined as:
 
 $$\cos(\theta) = \frac{y \cdot \hat{y}}{|y| |\hat{y}|}$$
 
 where **y** and **$\hat{y}$** are the target and predicted vectors, respectively. Cosine similarity ranges from 0 to 1 for non-negative vectors, with value 1 indicating that the vectors have exactly the same direction.
 
-<br><br>
-
-#### Solving System of equations by minimising SSR
+Cosine Similarity thus doesn't account for the length (magnitude) of the vector, only how closely their directions align.
 
 <br><br>
+
+### Solving System of equations by minimising SSR
 
 One way to solve a system of linear equations in R is to use the **solve()** function. However, **solve()** only works when the the coefficient matrix, **A**, is square, non-singular, and the system has an exact solution. In this case the coefficient matrix is not square and an exact solution does not always exist.
 
@@ -171,10 +174,8 @@ Instead, the solution can be approximated by minimizing the sum of squared resid
 To find the exact solution (when on exists), or the closest non-negative approximation, the program uses the nnls package in R, which implements the Lawson-Hanson algorithm for No-Negative Least Squares (NNLS). This algorithm finds vector **x** that minimises the sum of squared residuals while satisfying the non-negativity constraint **x** $\geq$ 0:
 
 $$\min_{x \geq 0}\sum_{i=1}^{n}(Ax_i-y_i)^2$$
-More commonly, this optimisation problem is expressed in matrix notation as
 
-$$\min_{x \geq 0} |Ax - y|_2^2$$
-where **A** is the coefficient matrix, **x** is the vector of activity multipliers, and **y** is the vector of observed values.
+where **A** is the coefficient matrix, **x** is the vector of activity multipliers, and **y** is the target harvest ratio vector.
 
 <br><br>
 
@@ -194,13 +195,15 @@ solve_nnls <- function(M, y) {
 
 <br><br>
 
-#### Solving System of equations by maximising cosine similarity
+### Solving System of equations by maximising cosine similarity
+
+Cosine Similarity is defined as the cosine of the angle between two vectors, where a value of 1 indicates that the vectors point in the same direction, 0 indicates orthogonality and -1 indicates opposite directions.
+
+For two vectors x and y, cosine similarity in R is implemented below:
 
 <br><br>
 
-
 ```{r}
-
 cosine_similarity <- function(x, y) {
   norm_x <- sqrt(sum(x^2))
   norm_y <- sqrt(sum(y^2))
@@ -208,6 +211,73 @@ cosine_similarity <- function(x, y) {
   cos_sim <- sum(x * y) / (norm_x * norm_y)
   return(cos_sim)
 }
+```
+
+<br><br>
+
+Instead of solving $$Ax=y$$ directly, this program finds x by searching for x where the cosine similarity between **Ax** and **y** is maximised
+
+$$f(x) = \frac{Ax \cdot y}{|Ax| |y|}$$
+Since |y| is constant with respect to x, this is equivalent to solving:
+
+$$f(x) = \max_{x \geq 0} \frac{(Ax)^T y}{|Ax|}$$
+
+The optimisation is done using the nloptr library with the NLOPT_LD_SLSQP algorithm, a gradient-based constrained optimisation method, which was found to be the most efficient and accurate. The gradient of the objective function is:
+
+$$\nabla_x f(x) = A^T \left(\frac{y}{\|Ax\|} - \frac{((Ax)^T y)Ax}{\|Ax\|^3} \right)$$
+
+The expression is found by using the chain rule to the cosine similarity objective.
+
+<br><br>
+
+```{r}
+
+
+solve_maximise_cosine_similarity <- function(A, b) {
+
+  cos_obj <- function(x) {
+    Ax <- A %*% x
+    -sum(Ax * b) / sqrt(sum(Ax^2))
+  }
+
+  cos_grad <- function(x) {
+    Ax <- A %*% x
+    s <- sqrt(sum(Ax^2))
+
+    as.vector(
+      t(A) %*% (-b / s + (sum(Ax * b) / s^3) * Ax)
+    )
+  }
+
+  x <- nloptr(
+    x0 = rep(1, ncol(A)),
+    eval_f = cos_obj,
+    eval_grad_f = cos_grad,
+    lb = rep(0, ncol(A)),
+    opts = list(
+      algorithm = "NLOPT_LD_SLSQP",
+      maxeval = 10000,
+      xtol_rel = 1e-12
+    )
+  )
+  
+  Ax <- A %*% x$solution
+  c <- sqrt(sum(b^2)) / sqrt(sum(Ax^2))
+  
+  c * x$solution
+}
+
+```
+
+<br><br>
+
+### Solving System of equations by minimising normalised SSR
+
+__
+
+```{r}
+
+
 
 
 ```
@@ -215,11 +285,20 @@ cosine_similarity <- function(x, y) {
 
 <br><br>
 
-#### Other Functions
+### Analysis Functions
 
-<br><br>
+These funcions are used to analyse the solver functions.
 
 ```{r}
+
+ssr <- function(A, x, b) {
+  sum((A %*% x - b)^2)
+}
+
+relative_ssr_Ax <- function(A, x, y) {
+  Ax <- A %*% x
+  sum((Ax - y)^2) / sum(Ax^2)
+}
 
 find_modified_hr <- function(temperary_model, modified_activity_multiplier) {
   temperary_model$data$fleet.model$gear_mult <- modified_activity_multiplier
@@ -236,58 +315,65 @@ check_if_exact_solution <- function(final_activity_multiplier, harvest_ratio_mat
 
 <br><br>
 
-#### Analysis
-
-<br><br>
+### Analysis
 
 ```{r}
 
-# Target_Harvest_Ratio <- F_calc_func_2(model) * runif(10, min = 0, max = 10)
-# 
-# hr_data <- initialize_data(model, Target_Harvest_Ratio)
-# 
-# Equations_Matrix <- hr_data$Equations_Matrix
-# Target_Harvest_Ratio <- hr_data$Target_Harvest_Ratio
-# zero_hr_guilds <- hr_data$zero_hr_guilds
-# 
-# print(paste("There are zero harvest ratios at rows:", zero_hr_guilds))
-# 
-# nnls <- solve_nnls(Equations_Matrix, Target_Harvest_Ratio)
-# 
-# modified_activity_multiplier <- nnls$x
-# print("The modified activity multiplier is:")
-# print(modified_activity_multiplier)
-# print(" ")
-# 
-# has_exact_solution <- check_if_exact_solution(modified_activity_multiplier, Equations_Matrix, Target_Harvest_Ratio)
-# 
-# if (has_exact_solution) {
-#   print("We found an exact solution")
-# } else {
-#   print(paste("There are NO exact solutions but the closest we got has a residual sum of squares of", nnls$SSR))
-# }
-# 
-# modified_hr <- find_modified_hr(model, modified_activity_multiplier)
-# print("There was a final harvest ratio value of:")
-# print(modified_hr)
-# print(" ")
-# print(paste("The cosine similarity it", cosine_similarity(modified_hr, hr_data$Target_Harvest_Ratio)))
+Target_Harvest_Ratio <- F_calc_func_2(model) * runif(10, min = 0, max = 100000)
+
+hr_data <- initialize_data(model, Target_Harvest_Ratio)
+
+A <- hr_data$Equations_Matrix
+b <- hr_data$Target_Harvest_Ratio
+
+
+print("NNLS Method")
+x <- solve_nnls(A, b)
+
+b_hat <- A %*% x$x
+
+print(cosine_similarity(b, b_hat))
+print(ssr(A, x$x, b))
+print(relative_ssr_Ax(A, x$x, b))
+
+
+print("Cos Sim Method")
+x <- solve_maximise_cosine_similarity(A, b)
+
+b_hat <- A %*% x
+
+print(cosine_similarity(b, b_hat))
+print(ssr(A, x, b))
+print(relative_ssr_Ax(A, x, b))
+
 
 ```
 
 <br><br>
 
-### 2 Sensitivity Analysis of Harvest Ratio Constraints
+## Power Sensitivity Analysis
+
+__
+
+```{r}
+
+
+
+```
 
 <br><br>
 
-This section examines the sensitivity and robustness of the optimisation model by evaluating how changes to harvest ratio constraints influence solution accuracy. A series of analyses were performed to determine how the removal of individual constraints, modification of target harvest ratios, and simultaneous changes to multiple targets affect the ability of the non-negative least squares (NNLS) algorithm to identify solutions that satisfy the model constraints. These analyses provide insight into the relative importance of individual harvest ratio constraints and the conditions under which exact solutions can be achieved.
+## 2 Sensitivity Analysis of Harvest Ratio Constraints
+
+<br><br>
+
+This section examines the sensitivity and robustness of the optimisation model by evaluating how changes to harvest ratio constraints influence solution accuracy. A series of analyses were performed to determine how the removal of individual constraints, modification of target harvest ratios, and simultaneous changes to multiple targets affect the ability of the non-negative least squares (NNLS) algorithm and the maximum cosine similarity method to identify solutions that satisfy the model constraints. These analyses provide insight into the relative importance of individual harvest ratio constraints and the conditions under which exact solutions can be achieved.
 
 The following code initialises the data required for this section. A randomly perturbed target harvest ratio was generated to provide an alternative starting condition for the sensitivity analysis.
 
 ```{r, fig.align="center"}
 
-Target_Harvest_Ratio <- F_calc_func_2(model) * runif(10, min = 0, max = 10)
+Target_Harvest_Ratio <- F_calc_func_2(model) * runif(10, 0, 2)
 
 hr_data <- initialize_data(model, Target_Harvest_Ratio)
 
@@ -313,9 +399,7 @@ grouplabels <- setdiff(grouplabels, excluded_guilds)
 
 <br><br>
 
-#### Effect of Removing Harvest Ratio Constraints on Solution Accuracy
-
-<br><br>
+### Effect of Removing Harvest Ratio Constraints on Solution Accuracy
 
 To investigate the conditions under which the model produced an exact solution, a sensitivity analysis was performed by systematically removing individual harvest ratio constraints and rerunning the program. The purpose was to determine how the availability of constraints influences the ability of the nnls algorithm to find an exact solution.
 
@@ -357,9 +441,7 @@ barplot(ssr_values,
 
 <br><br>
 
-#### Sensitivity to Changes in the Target Harvest Ratio
-
-<br><br>
+### Sensitivity to Changes in the Target Harvest Ratio
 
 To investigate how sensitive the optimisation is to changes in the target harvest ratio, each guild was examined individually. The aim was to determine how altering the target harvest ratio for a single guild affects the quality of the best-fitting solution.
 
@@ -369,6 +451,8 @@ For each modified target harvest ratio, the optimisation was rerun to determine 
 
 The figures below show how the SSR changes as the target harvest ratio for each guild is varied. The verticle red dashed line indicates the original harvest ratio for that guild. Lower SSR values indicate solutions that remain close to the original harvest ratios, while larger values indicate that the modified target harvest ratio is increasingly difficult to satisfy without deviating from the original solution.
 
+<br><br>
+
 ```{r, fig.width=18, fig.height=12}
 
 par(mfrow = c(3, 3))
@@ -377,7 +461,7 @@ for (i in 1:length(available_guilds)) {
   
   original_target <- hr_data$Target_Harvest_Ratio
   
-  x_values <- seq(0, original_target[i]*2, length.out = 2000)
+  x_values <- seq(0, original_target[i]*2, length.out =1000)
   
   y_values <- sapply(x_values, function(value) {
     
@@ -404,99 +488,135 @@ for (i in 1:length(available_guilds)) {
 
 ```
 
+<br><br>
+
 The results show that at the point where ____.
 
 <br><br>
 
-#### Sensitivity to Changes in the Target Harvest Ratio On the same graph
+This sensitivity analysis was repeated using the maximum cosine similarity approach.
 
 <br><br>
 
-```{r, fig.align="center"}
+```{r, fig.width=18, fig.height=12}
 
-# grouplabels <- c(
-#   "Planktivorous fish",
-#   "Demersal fish",
-#   "Migratory fish",
-#   "Benthos_susp-dep",
-#   "Benthos_carn-scav",
-#   "Zooplankton_carn",
-#   "Birds",
-#   "Pinnipeds",
-#   "Cetaceans",
-#   "Macrophytes"
-# )
-# 
-# grouplabels <- setdiff(grouplabels, excluded_guilds)
-# 
-# original_targets <- hr_data$Target_Harvest_Ratio
-# 
-# # Store results
-# sensitivity_results <- list()
-# 
-# for (i in seq_along(available_guilds)) {
-#   
-#   x_values <- seq(0, original_targets[i] * 2, length.out = 2000)
-#   
-#   y_values <- sapply(x_values, function(value) {
-#     
-#     modified_targets <- original_targets
-#     modified_targets[i] <- value
-#     
-#     nnls <- solve_nnls(hr_data$Equations_Matrix, modified_targets)
-#     nnls$SSR
-#   })
-#   
-#   sensitivity_results[[i]] <- list(
-#     x = x_values,
-#     y = y_values
-#   )
-# }
-# 
-# # Find common axis limits
-# xlim <- range(sapply(sensitivity_results, function(z) z$x))
-# ylim <- range(sapply(sensitivity_results, function(z) z$y))
-# 
-# # Create empty plot
-# plot(
-#   NA,
-#   xlim = xlim,
-#   ylim = ylim,
-#   xlab = "Target Harvest Ratios",
-#   ylab = "Sum of Squared Residuals",
-#   main = "Sensitivity of all guilds"
-# )
-# 
-# # Add curves
-# for (i in seq_along(sensitivity_results)) {
-#   
-#   lines(
-#     sensitivity_results[[i]]$x,
-#     sensitivity_results[[i]]$y,
-#     lwd = 2
-#   )
-#   
-#   abline(
-#     v = original_targets[i],
-#     col = "grey",
-#     lty = 5
-#   )
-# }
-# 
-# legend(
-#   "topright",
-#   legend = grouplabels,
-#   lty = 1,
-#   cex = 0.7
-# )
-# 
-# grid()
+par(mfrow = c(3, 3))
+
+M <- hr_data$Equations_Matrix
+
+for (i in 1:length(available_guilds)) {
+  
+  original_target <- hr_data$Target_Harvest_Ratio
+  
+  x_values <- seq(0, original_target[i]*2, length.out = 250)
+  
+  y_values <- sapply(x_values, function(value) {
+    
+    modified_targets <- hr_data$Target_Harvest_Ratio
+    modified_targets[i] <- value
+    
+    x <- solve_maximise_cosine_similarity(M, modified_targets)
+    sol <- M %*% x
+    cosine <- cosine_similarity(sol, modified_targets)
+  })
+  
+  plot(
+    x_values,
+    y_values,
+    type = "l",
+    main = paste("Sensitivity of", grouplabels[i]),
+    xlab = "Target Harvest Ratios",
+    ylab = "Cosine Similarity",
+  )
+  
+  abline(v = original_target[i], col = "red", lty = 5)
+  grid()
+}
 
 ```
 
 <br><br>
 
-#### 2 Variable sensitivity analysis
+### Sensitivity to Changes in the Target Harvest Ratio On the same graph
+
+To allow direct comparison between guilds, the sensitivity curves were combined onto a single graph. Each line represents the response of optimisation to changes in the target harvest ratio of one guild while all other guild targets remain fixed.
+
+<br><br>
+
+```{r, fig.align="center"}
+
+
+cols <- rainbow(length(available_guilds))
+
+max_x <- max(hr_data$Target_Harvest_Ratio) * 0.5
+
+results <- vector("list", length(available_guilds))
+max_y <- 0
+
+for (i in seq_along(available_guilds)) {
+
+  original_target <- hr_data$Target_Harvest_Ratio
+
+  x_values <- seq(0, original_target[i] * 2, length.out = 1000)
+
+  y_values <- sapply(x_values, function(value) {
+
+    modified_targets <- original_target
+    modified_targets[i] <- value
+
+    nnls <- solve_nnls(hr_data$Equations_Matrix, modified_targets)
+    nnls$SSR
+  })
+
+  results[[i]] <- list(x = x_values, y = y_values)
+  max_y <- max(max_y, y_values)
+}
+
+
+plot(
+  NA,
+  xlim = c(0, max_x),
+  ylim = c(0, max_y),
+  xlab = "Target Harvest Ratio",
+  ylab = "Sum of Squared Residuals",
+  main = "Sensitivity Analysis",
+  type = "n"
+)
+
+grid()
+
+
+for (i in seq_along(available_guilds)) {
+  lines(
+    results[[i]]$x,
+    results[[i]]$y,
+    col = cols[i],
+    lwd = 2
+  )
+
+  abline(
+    v = hr_data$Target_Harvest_Ratio[i],
+    col = cols[i],
+    lty = 3
+  )
+}
+
+legend(
+  "topright",
+  legend = grouplabels,
+  col = cols,
+  lwd = 2,
+  cex = 0.8
+)
+
+
+```
+
+<br><br>
+
+### 2 Variable Sensitivity Analysis
+
+To examine interactions between guild targets, a two-variable sensitivity analysis was performed. Instead of changing one target harvest ratio at a time, the target harvest ratios of two guilds were varied simultaneously while all other guild targets were held constant.
 
 <br><br>
 
@@ -572,15 +692,15 @@ points(
 
 ```
 
-From the bar graph we can see that by removing constraints 1, 3, 6, or 7 we can achieve an exact solution.
-
 <br><br>
 
-### 3 Bounded Least Squared Optimisation
+## 3 Bounded Least Squared Optimisation
 
 One limitation of the original optimisation was that some of the resulting activity multipliers were unrealistically large. To address this issue, the optimisation procedure were modified by incorporating the bvls package, which allows upper bounds to be specified for individual activity multipliers. This constrains the optimisation solution to be a more realistic range and prevents excessively large multiplier values from influencing the results.
 
 The following code defines the optimisation function using the bvls package. The function applies the bounded least squares approach to find the activity multipliers that minimise the residual error while ensuring that each multiplier remains within its specified upper and lower limits.
+
+<br><br>
 
 ```{r}
 
@@ -596,8 +716,8 @@ upper_bound_solution <- function(M, y, upper_bound) {
   )
   
   list(
-    x = coef(solution),
-    SSR = sum(residuals(solution)^2)
+    x = coef(fit),
+    SSR = sum(residuals(fit)^2)
   )
 }
 
@@ -608,35 +728,33 @@ upper_bound_solution <- function(M, y, upper_bound) {
 
 ```{r, fig.align="center"}
 
-# Target_Harvest_Ratio <- c(0.0001, 0.0004, 0.002, 0.0004, 0.0003, 0.0005, 0.00008, 0.000002, 0.001, 0)
-# 
-# hr_data <- initialize_data(model, Target_Harvest_Ratio)
-# Equations_Matrix <- hr_data$Equations_Matrix
-# Target_Harvest_Ratio <- hr_data$Target_Harvest_Ratio
-# 
-# x_values <- seq(0, 400, length.out = 2000)
-# 
-# y_values <- sapply(x_values, function(upper_bound) {
-#   residue_sum_of_squares(
-#     hr_matrix = Equations_Matrix,
-#     modified_activity_multiplier = upper_bound_solution(Equations_Matrix, Target_Harvest_Ratio, rep(upper_bound, 12)),
-#     target_harvest_ratio = Target_Harvest_Ratio
-#   )
-# })
-# 
-# log_y <- lapply(y_values, log)
-# 
-# plot(x_values, log_y,
-#      type = "l",
-#      xlab = "Upper Bound Values",
-#      ylab = "Log of Sum of Residue Squares",
-#      main = "Upper Bound values vs RSS")
-# 
-# # abline(h = log(SSR), col = "red", lty = 5, lwd = 2)
-# 
-# grid()
+Target_Harvest_Ratio <- c(0.0001, 0.0004, 0.002, 0.0004, 0.0003, 0.0005, 0.00008, 0.000002, 0.001, 0)
+
+hr_data <- initialize_data(model, Target_Harvest_Ratio)
+
+M <- hr_data$Equations_Matrix
+y <- hr_data$Target_Harvest_Ratio
+
+x_values <- seq(0, 400, length.out = 1000)
+
+y_values <- sapply(x_values, function(upper_bound) {
+  upper_bound_solution(M, y, rep(upper_bound, 12))$SSR
+})
+
+log_y <- lapply(y_values, log)
+
+plot(x_values, log_y,
+     type = "l",
+     xlab = "Upper Bound Values",
+     ylab = "Log of Sum of Residue Squares",
+     main = "Upper Bound values vs RSS")
+
+SSR <- solve_nnls(M, y)$SSR
+
+# abline(h = log(SSR), col = "red", lty = 5, lwd = 2)
+
+grid()
 
 ```
 
-
-### Power sensitivity analysis
+<br><br>
