@@ -1,0 +1,3136 @@
+---
+title: "StrathE2E2 Project"
+author: "Avinash Pothuri"
+output: html_document
+---
+
+# {.tabset}
+
+<br>
+
+## Overview
+
+<br>
+
+### What is the project aim?
+
+The aim of this project is to develop a computational pipeline for determining whether specified harvest-ratio targets can be achieved within the StrathE2E2 model by adjusting fishing-gear activity values.
+
+The pipeline treats the relationship between activity values and harvest ratios as a system of linear equations,
+
+$$
+\mathbf{M}\mathbf{x}=\mathbf{y},
+$$
+
+given that all activity values must be non-negative.
+
+The primary objective is to determine whether an exact, non-negative solution exists. if an exact solution is not possible, the pipeline identifies the closest feasible solution by minimising the sum of squared residuals.
+
+The approach combines several complementary methods. First, the structure of the contribution matrix is represented as a bipartite graph, allowing independent groups of equations and activity variables to be identified. Redundant constraints are then removed where appropriate, reducing the size of the systems that need to be solved. Small or structurally simple systems can be solved analytically, while underdetermined or infeasible systems are handled using constrained optimisation, including non-negative least squares.
+
+The pipeline also investigates the structural properties of the power matrix. Connectivity analysis identifies fishing gears that affect common guilds, while bridge analyses identifies relationships whose removal can substantially alter the structure of the system. Sensitivity and leverage analyses are then used to determine which harvest-ratio constraints and power values have the greatest influence on solution feasibility.
+
+Together, these analyses provide more information than a simple yes-or-no assessment of whether the harvest-ratio targets can be achieved. They help identify why a target is difficult to achieve and which fishing activities, constraints, or power values are the most influential.
+
+The resulting pipeline can therefore be used to explore the feasibility of management objectives within the StrathE2E2 model without requiring the full model to be repeatedly run for every candidate set of activity values.
+
+<br>
+
+### Why does this project matter?
+
+Determining whether there exist activity values can achieve specified harvest-ratio targets is important for assessing whether ecosystem-based fisheries management objectives are feasible within a given fishery.
+
+An exact solution might not always exist because management objectives can conflict with one another or be difficult to achieve simultaneously. Rather than simply identifying that a solution is impossible, this project investigates why the target cannot be achieved and which aspects of the management plan or fishery are responsible.
+
+When an exact solution does not exist, the analysis investigates the structure of the system to determine which constraints and power values stop it from being solved exactly.
+
+Harvest-ratio leverage identifies constraints with a strong influence on the fitted solution, while power sensitivity analysis identifies power values for which relatively small changes can produce substantial changes in model error. Graph-based connectivity analyses provide an additional structural perspective by showing how fishing gears and fishing guild constraints are linked.
+
+These results can help prioritise management objectives and model parameters for further investigation. In particular, they can identify possible changes to the fishery or specific management objectives that may have the greatest potential to improve feasibility.
+
+The framework is therefore intended as a diagnostic and exploratory tool. Future work could incorporate additional constraints, including economic limits on fishing activity.
+
+<br>
+
+### How is the problem formulated?
+
+The relationship between activity and harvest ratio values is represented by the linear system
+
+$$
+\mathbf{M}\mathbf{x}=\mathbf{y},
+$$
+
+where:
+
+$\mathbf{M}$ is the contribution matrix linking fishing gears to fishing guilds,
+$\mathbf{x}$ is the vector of activity values,
+$\mathbf{y}$ is the vector of target harvest ratios.
+
+The contribution matrix is constructed from the StrathE2E2 relative power matrix and the corresponding harvest-ratio scaling factors.
+
+The principal constraint is
+
+$$
+x_j \geq 0
+$$
+
+for every fishing gear $j$, because negative fishing activity is physically impossible.
+
+The computational problem is therefore:
+
+$$
+\text{Find } \mathbf{x}\geq0
+\quad\text{such that}\quad
+\mathbf{M}\mathbf{x}=\mathbf{y},
+$$
+
+when an exact solution exists.
+
+If no exact solution exists, the problem becomes
+
+$$
+\min_{\mathbf{x}\geq0}
+|\mathbf{M}\mathbf{x}-\mathbf{y}|_2^2.
+$$
+
+The resulting sum of squared residuals provides a quantitative measure of how closely the target harvest ratios can be reproduced.
+
+The overall workflow is:
+
+$$
+\text{Contribution Matrix}
+\rightarrow
+\text{Structural Decomposition}
+\rightarrow
+\text{Exact Solution Where Possible}
+\rightarrow
+\text{Non-negative Least Squares}
+\rightarrow
+\text{Sensitivity Analysis}.
+$$
+
+The combination of analytic and numerical methods allows simple systems to be solved efficiently while retaining a general optimisation-based fallback for impossible cases.
+
+<br>
+
+### The Final Figure
+
+Finally the project produced a figure detailing how far away from exactly solving the equations you are and what are the different ways to reach the final solution and if its even possible.
+
+<br>
+<br>
+<br>
+
+## Mathematical Background and Setup
+
+<br>
+
+### What are the Harvest Ratio constraints?
+
+The mathematical problem considered in this study is to determine whether a set of prescribed harvest ratios can be reproduced by a non-negative combination of activity values. Each harvest-ratio constraint can be expressed as a linear equation of activity values. For example, the first constraint can be written as:
+
+$$
+A_1a_1+B_1a_2+\cdots+L_1a_{12}=HR_1,
+$$
+
+where:
+
+- $A_1,\ldots,L_1$ are the contributions of the 12 fishing gears to guild 1,
+- $a_1,\ldots,a_{12}$ are the corresponding fishing-gear activity values,
+- $HR_1$ is the target harvest ratio for guild 1.
+
+The same relationship can be written for each of the 10 fishing guilds. Collectively, these equations form the matrix system
+
+$$
+\mathbf{M}\mathbf{x}=\mathbf{y}.
+$$
+
+The contribution matrix is
+
+$$
+\mathbf{M} =
+\begin{bmatrix}
+M_{11} & M_{12} & \cdots & M_{1,12}\\
+M_{21} & M_{22} & \cdots & M_{2,12}\\
+\vdots & \vdots & \ddots & \vdots\\
+M_{10,1} & M_{10,2} & \cdots & M_{10,12}
+\end{bmatrix},
+$$
+
+with dimensions $10\times12$.
+
+The activity vector is
+
+$$
+\mathbf{x}=
+\begin{bmatrix}
+a_1\\
+a_2\\
+\vdots\\
+a_{12}
+\end{bmatrix},
+$$
+
+and the target harvest-ratio vector is
+
+$$
+\mathbf{y}=
+\begin{bmatrix}
+HR_1\\
+HR_2\\
+\vdots\\
+HR_{10}
+\end{bmatrix}.
+$$
+
+Because there are 10 harvest-ratio constraints and 12 activity values, the system is generally underdetermined. However, the physical requirement
+
+$$
+a_j\geq0
+$$
+
+for every fishing gear restricts the set of feasible solutions.
+
+The objective of the computational framework is therefore not simply to solve the linear system, but to determine whether a **non-negative solution exists** and, if not, to identify the closest feasible solution according to an appropriate error criterion.
+
+<br>
+
+### What are the Possible Outcomes When Solving a System of Equations?
+
+There are three possible outcomes:
+
+1. **One feasible solution**
+2. **Infinite number of solutions**
+3. **No feasible solution**
+
+The number of equations relative to the number of variables determines which of these outcomes are possible.
+
+<br>
+
+#### Equal Number of Equations and Variables
+
+When the number of equations equals the number of variables, the coefficient matrix is square.
+
+If the square coefficient matrix is non-singular (determinant is non-zero), the system has one unique mathematical solution. This solution must then be checked against the non-negativity constraint.
+
+- **one feasible solution**, if the unique mathematical solution is non-negative.
+- **no feasible solution**, if the unique mathematical solution contains one or more negative activity values.
+
+<br>
+
+#### More Equations Than Variables
+
+When the system is **overdetermined**. There are more equations than variables, meaning that the system contains more constraints than unknown coefficient values. This occurs when the coefficient matrix has more rows than columns.
+
+After redundant equations have been removed, the remaining equations represent independent constraints. If the system is consistent, it can have a unique solution. If the equations are inconsistent, no exact solution exists. The solution must also be non-negative
+
+- **one feasible solution**, if the equations are consistent and the solution is non-negative.
+- **no feasible solution**, if the equations are inconsistent or the solution contains one or more negative activity values.
+
+<br>
+
+#### Fewer Equations Than Variables
+
+When the system is **underdetermined**. There are fewer equations than variables, resulting in one or more degrees of freedom. This occurs when the coefficient matrix has more columns than rows.
+
+If the equations are consistent, infinitely many mathematical solutions exist. The non-negativity constraint restricts these solutions to the feasible region.
+
+- **infinitely many feasible solutions**, if more than one non-negative solution exists; or
+- **no feasible solution**, if none of the mathematical solutions satisfies the non-negativity constraint.
+
+<br>
+
+### What packages are used in this project?
+
+The following code chunk loads in all of the packages used in the program:
+
+```{r, message=FALSE, warning=FALSE}
+
+library(igraph)
+
+library(lpSolve)
+library(nloptr)
+library(nnls)
+library(bvls)
+
+library(ggplot2)
+library(knitr)
+library(patchwork)
+
+library(StrathE2E2)
+model <- e2e_read("North_Sea", "2003-2013")
+
+```
+
+<br>
+
+### How to generate a contribution matrix?
+
+The contribution matrix is constructed from the StrathE2E2 relative fishing-power matrix and the harvest-ratio scaling vector. The rows in the matrix represent guilds and the columns represent gears. The function for this is hsown below:
+
+```{r}
+
+find_matrix_M <- function(model) {
+  
+  Power <- as.matrix(model$data$fleet.model$gear_group_rel_power)
+  HRscale <- model$data$fleet.model$HRscale_vector
+  
+  M <- t(Power) * HRscale
+  
+  return(M)
+}
+
+```
+
+The resulting matrix has one row for each fishing guild and one column for each fishing gear. A zero element indicates that the corresponding fishing gear does not contribute to the harvest ratio of that guild
+
+<br>
+
+The guild and gear labels are initialised below and are used repeatedly in plots and figures in the rest of the project.
+
+```{r}
+
+guild_labels <- c(
+  "Planktivorous_fish",
+  "Demersal_fish",
+  "Migratory_fish",
+  "Benthos_susp-dep",
+  "Benthos_carn-scav",
+  "Zooplankton_carn",
+  "Birds",
+  "Pinnipeds",
+  "Cetaceans",
+  "Macrophytes"
+  )
+
+gear_labels <- model$data$fleet.model$gear_labels
+
+```
+
+<br>
+<br>
+<br>
+
+## Evaluating Solutions
+
+<br>
+
+### Sum of Squared Residuals, Nomalised SSR, and Cosine similarity
+
+Several measures can be used to assess how closely the predicted harvest ratios match the target harvest ratios. Three useful measures are the sum of squared residuals (SSR), normalised sum of squared residuals (NSSR), and cosine similarity. Each measure captures a different aspect of the agreement between the target and predicted harvest-ratio vectors.
+
+<br>
+
+### Sum of Squared Residuals
+
+The sum of squared residuals (SSR) measures the total squared difference between the target and predicted harvest ratios. It is defined as:
+
+$$
+SSR = \sum_{i=1}^{n}(y_i-\hat{y}_i)^2
+$$
+
+where $y_i$ is the target harvest ratio and $\hat{y}_i$ is the corresponding predicted harvest ratio.
+
+A smaller SSR indicates that the predicted values are numerically closer to the target values, with an SSR of zero representing an exact match. Because the residuals are squared, larger errors receive disproportionately greater weighting than smaller errors.
+
+In StrathE2E2, some fishing guilds may not be affected by any fishing gear. For these guilds, the corresponding row of the contribution matrix (M) contains only zeros. Their predicted harvest ratio is therefore fixed at zero, regardless of the fishing-gear activity values. Such guilds cannot be influenced by the optimisation and do not provide information about the quality of the activity solution. They are therefore excluded from the SSR calculation.
+
+The following function calculates the SSR while automatically excluding guilds that are unaffected by fishing gear:
+
+```{r}
+
+calculate_ssr <- function(M, y, activity) {
+  
+    keep <- rowSums(M != 0) > 0
+    
+    M <- M[keep, , drop = FALSE]
+    y <- y[keep]
+    
+    y_prime <- M %*% activity
+    
+    ssr_value <- sum((y - y_prime)^2)
+    return(ssr_value)
+  
+}
+
+```
+
+<br>
+
+### Normalised Sum of Squared Residuals
+
+The NSSR is defined as:
+
+$$
+NSSR =
+\frac{
+\sum_{i=1}^{n}(y_i-\hat{y}_i)^2
+}{
+\sum_{i=1}^{n}y_i^2
+}
+$$
+and asks How large is the error relative to the size of the management objective?
+
+As with the unnormalised SSR, guilds that are unaffected by fishing gear are excluded from the calculation. This ensures that the metric evaluates only those harvest ratios that can be influenced by the activity values.
+
+The normalised SSR is calculated using the following function:
+
+```{r}
+
+calculate_normalised_ssr <- function(M, y, activity) {
+
+  keep <- rowSums(M != 0) > 0
+
+  M <- M[keep, , drop = FALSE]
+  y <- y[keep]
+  
+  y_prime <- M %*% activity
+  
+  denominator <- sum(y^2)
+  
+  if (denominator == 0) {
+    return(NA)
+  }
+  
+  nssr_value <- sum((y - y_prime)^2) / denominator
+  return(nssr_value)
+}
+
+```
+
+<br>
+
+### Cosine Similarity
+
+Cosine similarity measures the similarity in direction between the target and predicted harvest-ratio vectors. It is defined as:
+
+$$
+\frac{
+\mathbf{y}\cdot\hat{\mathbf{y}}
+}{
+|\mathbf{y}||\hat{\mathbf{y}}|
+}
+$$
+
+For non-negative harvest-ratio vectors, cosine similarity ranges from 0 to 1. A value of 1 indicates that the two vectors point in exactly the same direction, while smaller values indicate increasing differences in their relative patterns.
+
+A prediction can have perfect cosine similarity while still having a large absolute error.
+
+Cosine similarity is consequently useful when the primary interest is whether the relative distribution of harvest ratios across fishing guilds is reproduced. SSR and normalised SSR are more appropriate when the absolute values of the harvest ratios are also important.
+
+The following function calculates the cosine similarity between the target and predicted harvest-ratio vectors. As with the SSR and NSSR calculations, guilds that are unaffected by fishing gear are excluded.
+
+```{r}
+
+calculate_cosine_similarity <- function(model, M, y, activity) {
+  
+  keep <- rowSums(M != 0) > 0
+
+  M <- M[keep, , drop = FALSE]
+  y <- y[keep]
+  
+  y_prime <- M %*% activity
+  
+  norm_y <- sqrt(sum(y^2))
+  norm_predicted <- sqrt(sum(y_prime^2))
+  
+  cos_sim <- sum(y * y_prime) / (norm_y * norm_predicted)
+  
+  return(cos_sim)
+}
+
+```
+
+<br>
+
+### Comparison of the Measures
+
+The three measures can therefore be interpreted as follows:
+
+```{r, echo=FALSE}
+
+comparison_table <- data.frame(
+  
+  Measure = c(
+    "Sum of Squared Residuals (SSR)",
+    "Normalised SSR (NSSR)",
+    "Cosine similarity"
+  ),
+  
+  `Measures magnitude?` = c(
+    "Yes",
+    "Yes",
+    "No"
+  ),
+  
+  `Measures relative pattern?` = c(
+    "Yes",
+    "Yes",
+    "Yes"
+  ),
+  
+  `Ideal value` = c(
+    "0",
+    "0",
+    "1"
+  ),
+  
+  check.names = FALSE
+)
+
+kable(comparison_table)
+
+```
+
+The project uses the sum of squared residuals (SSR) to measure the difference between the predicted and target harvest ratios. However, a normalised sum of squared residuals (NSSR) could be looked at in future work, as normalisation provides a more meaningful way to compare when harvest ratios are substantially different in magnitude.
+
+<br>
+<br>
+<br>
+
+## Solution Pipeline
+
+### Graphical Decomposition
+
+<br>
+
+#### Bipartite Representation
+
+The structure of the linear system can be represented as a graph.
+
+One set of vertices represents different gears and the other represents different guilds. An edge is introduced between a guild and gear whenever the corresponding power value is non-zero.
+
+$$M_{ij} \neq 0$$
+
+This special type of graph is called a bipartite graph, in which the vertices are divided into two disjoint sets, and every edge connects a vertex in one set to a vertex in the other. Consequently, there are no edges between vertices within the same set.
+
+This representation is useful because the connected components of the graph correspond to independent groups of equations.
+
+If two sets of variables and equations belong to different connected components, there is no coefficient linking them. Consequently, the corresponding systems can be solved independently.
+
+For example if we are given the following simultaneous equation
+
+$$
+\begin{cases}
+2x + 3y = 5 \\
+4y = 7
+\end{cases}
+$$
+
+This can be turned into a matrix equation in the form
+
+$$
+\begin{bmatrix}
+2 & 3 \\
+0 & 4
+\end{bmatrix}
+\begin{bmatrix}
+x \\
+y
+\end{bmatrix}
+=
+\begin{bmatrix}
+5 \\
+7
+\end{bmatrix}
+$$
+
+Now can turn this into a graph
+
+```{r, echo=FALSE}
+
+vertices <- data.frame(
+  name = c("Equation 1", "Equation 2", "x", "y")
+)
+
+edges <- data.frame(
+  from = c("Equation 1", "Equation 1", "Equation 2"),
+  to   = c("x",          "y",          "y")
+)
+
+g <- graph_from_data_frame(edges, vertices = vertices, directed = FALSE)
+
+vertex_cols <- ifelse(vertices$name %in% c("x", "y"), "pink", "lightblue")
+
+plot(
+  g,
+  vertex.size = 35,
+  vertex.color = vertex_cols,
+  vertex.frame.color = "black",
+  vertex.label.cex = 0.9,
+  edge.arrow.size = 0.6
+)
+
+```
+
+The following code block contains code to build the graph:
+
+```{r}
+
+build_graph <- function(Matrix) {
+
+  guild_nodes <- paste0("Guild:", 1:nrow(Matrix))
+  gear_nodes <- paste0("Gear:", 1:ncol(Matrix))
+  
+  nz <- which(Matrix != 0, arr.ind = TRUE)
+  
+  edges <- data.frame(
+    from = guild_nodes[nz[,1]],
+    to   = gear_nodes[nz[,2]]
+  )
+  
+  g <- graph_from_data_frame(edges, directed = FALSE)
+  
+  return(g)
+}
+
+```
+
+<br>
+
+#### Connected Components
+
+The connected components of the graph identifies independent subsystems. The following function turns the independent components from the graph back into matrix form and outputs a list of independent matrices of varying size.
+
+```{r}
+
+find_independent_blocks <- function(g, Matrix) {
+
+  rownames(Matrix) <- paste0("Guild:", seq_len(nrow(Matrix)))
+  colnames(Matrix) <- paste0("Gear:", seq_len(12))
+
+  comp <- components(g)
+
+  blocks <- lapply(seq_len(comp$no), function(i) {
+
+    nodes <- names(comp$membership[
+      comp$membership == i
+    ])
+
+    rows <- nodes[grepl("^Guild:", nodes)]
+    cols <- nodes[grepl("^Gear", nodes)]
+
+    Matrix[
+      match(rows, rownames(Matrix)),
+      match(cols, colnames(Matrix)),
+      drop = FALSE
+    ]
+  })
+
+  return(blocks)
+}
+
+```
+
+This decomposition is important computationally because a large optimisation problem can potentially be replaced by several smaller independent problems.
+
+<br>
+
+#### Removing redundant equations
+
+Now there are three possible outcomes when solving a system of simultaneous equations:
+
+A unique solution.
+No solution (the system is inconsistent).
+Infinitely many solutions.
+
+Before attempting to solve the system, any redundant equations should be removed. A redundant equation does not provide any additional information because it is a linear combination of the other equations. For example,
+
+$$
+\begin{cases}
+x + y = 2, \\
+2x + 2y = 4.
+\end{cases}
+$$
+
+The second equation is simply twice the first and therefore does not impose an additional constraint. Removing redundant equations reduces the size of the system without changing its solution set.
+
+This is done through the rank of the equation, the rank tells us how many independent rows are in a matrix.
+
+The following function identifies and removes redundant equations while preserving all independent constraints. If the original system is inconsistent, the function also preserves the equations required to detect that inconsistency.
+
+``` {r}
+
+remove_redundant_equations <- function(blocks, target_harvest_ratio, tol = 1e-10) {
+  
+  lapply(blocks, function(M) {
+    
+    if (nrow(M) <= 1)
+      return(M)
+    
+    X <- as.integer(sub("Guild:", "", rownames(M)))
+    y <- target_harvest_ratio[X]
+    
+    keep <- integer(0)
+    
+    for (i in seq_len(nrow(M))) {
+      
+      candidate <- c(keep, i)
+      
+      A <- M[candidate, , drop = FALSE]
+      b <- y[candidate]
+      
+      rank_A  <- qr(A, tol = tol)$rank
+      rank_Ab <- qr(cbind(A, b), tol = tol)$rank
+      
+      if (rank_Ab > rank_A || rank_A > length(keep)) {
+        keep <- candidate
+      }
+    }
+    
+    M[keep, , drop = FALSE]
+  })
+}
+
+```
+
+<br>
+
+### Solving the Linear System Analytically
+
+<br>
+
+#### Single Power Terms
+
+If a fishing gear affects only a single guild, and that guild is affected by no other gears, then the corresponding activity values can be found directly by dividing the target harvest ratio by the associated power term.
+
+An example is a power matrix with ones on the main diagonal and zeros elsewhere, as shown below:
+
+```{r, echo=FALSE}
+
+model_temporary <- model
+
+Diagonal <- as.data.frame(diag(1, nrow = 12, ncol = 10))
+
+names(Diagonal) <- names(model_temporary$data$fleet.model$gear_group_rel_power)
+rownames(Diagonal) <- rownames(model_temporary$data$fleet.model$gear_group_rel_power)
+
+model_temporary$data$fleet.model$gear_group_rel_power <- Diagonal
+model_temporary$data$fleet.model$HRscale_vector  <- c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+
+df <- model_temporary$data$fleet.model$gear_group_rel_power
+
+rownames(df) <- model_temporary$data$fleet.model$gear_labels
+
+kable(df, row.names = TRUE)
+
+```
+
+<br>
+
+```{r, echo=FALSE}
+
+Target_Harvest_Ratio <- c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1) * runif(10, 10, 100)
+paste("With a randomised harvest ratio of", paste(Target_Harvest_Ratio, collapse = ", "))
+
+```
+
+An algorithm to solve this is shown below:
+
+```{r}
+
+M <- find_matrix_M(model_temporary)
+G <- build_graph(M)
+blocks <- find_independent_blocks(G, M)
+blocks <- remove_redundant_equations(blocks, Target_Harvest_Ratio)
+
+Act <- rep(0, 12)
+
+for (i in seq_along(blocks)) {
+  if (length(blocks[[i]]) == 1) {
+    
+    m <- blocks[[i]]
+
+    X <- as.integer(sub("Guild:", "", rownames(m)))
+    Y <- as.integer(sub("Gear:", "", colnames(m)))
+
+    Act[Y] <- Target_Harvest_Ratio[X] / m[1,1]
+  }
+}
+
+ssr <- calculate_ssr(M, Target_Harvest_Ratio, Act)
+paste("The ssr value is", ssr)
+
+```
+
+<br>
+
+#### Square Power Terms
+
+If the number of equations equals the number of variables and the determinant of the coefficient matrix is nonzero, then the system has a unique solution. Otherwise, there is no solution, since all redundant equations have already been removed.
+
+The unique solution should then be checked to ensure that all values are positive. If any value is non-positive, then no exact feasible solution exists.
+
+The system can be solved using R's built-in solve() function. An example for this is shown below:
+
+Given a power matrix:
+
+```{r, echo=FALSE}
+
+model_temporary <- model
+
+mat <- as.data.frame(matrix(0, nrow = 12, ncol = 10))
+
+mat[1:4, 1:4] <- 1
+mat[1, 1] <- 2
+mat[2, 2] <- 3
+mat[2, 4] <- 2
+mat[3, 3] <- 4
+mat[4, 1] <- 2
+mat[4, 4] <- 3
+
+mat[5:7, 5:7] <- 1
+mat[5, 5] <- 2
+mat[6, 6] <- 3
+mat[7, 7] <- 2
+
+mat[8:9, 8:9] <- 1
+mat[8, 8] <- 2
+mat[9, 9] <- 2
+
+mat[10, 10] <- 1
+
+names(mat) <- names(model_temporary$data$fleet.model$gear_group_rel_power)
+rownames(mat) <- rownames(model_temporary$data$fleet.model$gear_group_rel_power)
+
+model_temporary$data$fleet.model$gear_group_rel_power <- mat
+model_temporary$data$fleet.model$HRscale_vector  <- c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+
+Target_Harvest_Ratio <- c(10, 14, 12, 13, 4, 5, 4, 1, 1, 1)
+
+rownames(mat) <- gear_labels
+
+kable(mat, row.names = TRUE)
+
+```
+
+<br>
+
+And a target harvest ratio of [10, 14, 12, 13, 4, 5, 4, 1, 1, 1]
+
+<br>
+
+An algorithn to solve it is shown below:
+
+```{r}
+
+M <- find_matrix_M(model_temporary)
+G <- build_graph(M)
+blocks <- find_independent_blocks(G, M)
+blocks <- remove_redundant_equations(blocks, Target_Harvest_Ratio)
+
+Act <- rep(0, 12)
+solved <- logical(length(blocks))
+
+for (i in seq_along(blocks)) {
+  
+  m <- blocks[[i]]
+  
+  X <- as.integer(sub("Guild:", "", rownames(m)))
+  Y <- as.integer(sub("Gear:", "", colnames(m)))
+  
+  if (length(m) == 1) {
+
+    Act[Y] <- Target_Harvest_Ratio[X] / m[1, 1]
+    
+    solved[i] <- TRUE
+    
+  } else if (nrow(m) == ncol(m)) {
+    
+    target <-  Target_Harvest_Ratio[X]
+    
+    if (det(m) != 0) {
+      
+       sol <- solve(m, target)
+       
+       if (all(sol >= 0)) {
+         
+         Act[Y] <- sol
+         solved[i] <- TRUE
+         
+       }
+    }
+  }
+}
+unsolved_matrices <- blocks[!solved]
+
+
+print(Act)
+ssr <- calculate_ssr(M, Target_Harvest_Ratio, Act)
+paste("The ssr value is", ssr)
+
+```
+
+<br>
+
+#### More Variables than Equations: Using lpsolve
+
+If there are more variables than equations (i.e. more columns than rows), the system is underdetermined and therefore has infinitely many solutions. However, imposing the additional constraint that all activity values must be non-negative may eliminate some or all of these solutions.
+
+We can use the lpsolve package which is shown below:
+
+```{r}
+
+solve_nonnegative <- function(M, y) {
+  
+  m <- nrow(M)
+  n <- ncol(M)
+  
+  obj <- rep(0, n)
+  
+  sol <- lp(
+    direction = "min",
+    objective.in = obj,
+    const.mat = M,
+    const.dir = rep("=", m),
+    const.rhs = y
+  )
+  
+  return(sol)
+}
+
+```
+
+<br>
+
+### Computational Methods
+
+<br>
+
+#### Solving System of equations by minimising SSR
+
+When a solution does not exist, it can be approximated by minimizing the sum of squared residuals, while keeping activity values constrained to be non-negative.
+
+The program uses the nnls package in R, which implements the Lawson-Hanson algorithm for No-Negative Least Squares (NNLS). This algorithm finds vector **x** that minimises the sum of squared residuals while satisfying the non-negativity constraint **x** $\geq$ 0:
+
+$$\min_{x \geq 0}\sum_{i=1}^{n}(Ax_i-y_i)^2$$
+
+where **A** is the coefficient matrix, **x** is the vector of activity values, and **y** is the target harvest ratio vector.
+
+```{r}
+
+solve_nnls <- function(M, y) {
+  
+  solution <- nnls(M, y)
+  
+  list(
+    x = coef(solution),
+    SSR = sum(residuals(solution)^2)
+  )
+}
+
+```
+
+<br>
+
+#### Solving System of equations by maximising cosine similarity
+
+Cosine Similarity is defined as the cosine of the angle between two vectors, where a value of 1 indicates that the vectors point in the same direction, 0 indicates orthogonality and -1 indicates opposite directions.
+
+For two vectors x and y, cosine similarity in R is implemented below:
+
+```{r}
+
+cosine_similarity <- function(x, y) {
+  norm_x <- sqrt(sum(x^2))
+  norm_y <- sqrt(sum(y^2))
+  
+  cos_sim <- sum(x * y) / (norm_x * norm_y)
+  return(cos_sim)
+}
+
+```
+
+Instead of solving $$Ax=y$$ directly, this program finds x by searching for x where the cosine similarity between **Ax** and **y** is maximised
+
+$$f(x) = \frac{Ax \cdot y}{|Ax| |y|}$$
+Since |y| is constant with respect to x, this is equivalent to solving:
+
+$$f(x) = \max_{x \geq 0} \frac{(Ax)^T y}{|Ax|}$$
+
+The optimisation is done using the nloptr library with the NLOPT_LD_SLSQP algorithm, a gradient-descent based constrained optimisation method, which was found to be the most efficient and accurate. The gradient of the objective function is:
+
+$$\nabla_x f(x) = A^T \left(\frac{y}{\|Ax\|} - \frac{((Ax)^T y)Ax}{\|Ax\|^3} \right)$$
+
+The expression is found by using the chain rule to the cosine similarity objective.
+
+```{r}
+
+
+solve_maximise_cosine_similarity <- function(A, b) {
+
+  cos_obj <- function(x) {
+    Ax <- A %*% x
+    -sum(Ax * b) / sqrt(sum(Ax^2))
+  }
+
+  cos_grad <- function(x) {
+    Ax <- A %*% x
+    s <- sqrt(sum(Ax^2))
+
+    as.vector(
+      t(A) %*% (-b / s + (sum(Ax * b) / s^3) * Ax)
+    )
+  }
+
+  x <- nloptr(
+    x0 = rep(1, ncol(A)),
+    eval_f = cos_obj,
+    eval_grad_f = cos_grad,
+    lb = rep(0, ncol(A)),
+    opts = list(
+      algorithm = "NLOPT_LD_SLSQP",
+      maxeval = 10000,
+      xtol_rel = 1e-12
+    )
+  )
+  
+  Ax <- A %*% x$solution
+  c <- sqrt(sum(b^2)) / sqrt(sum(Ax^2))
+  
+  c * x$solution
+}
+
+```
+
+<br>
+
+#### Bounded Least Squared Optimisation
+
+One limitation of the original optimisation was that some of the resulting activity values were unrealistically large. To address this issue, the optimisation procedure were modified by incorporating the bvls package, which allows upper bounds to be specified for individual activity values. This constrains the optimisation solution to be a more realistic range and prevents values large activity values from influencing the results.
+
+The following code defines the optimisation function using the bvls package. The function applies the bounded least squares approach to find the activity values that minimise the residual error while ensuring that each activity value remains within its specified upper and lower limits.
+
+```{r}
+
+upper_bound_solution <- function(M, y, upper_bound) {
+  
+  lower_bound <- rep(0, 12)
+  
+  fit <- bvls(
+    M,
+    y,
+    bl = lower_bound,
+    bu = upper_bound
+  )
+  
+  list(
+    x = coef(fit),
+    SSR = sum(residuals(fit)^2)
+  )
+}
+
+```
+
+This function isn't actually used anywhere else in the project.
+
+<br>
+
+### Main Algorithm
+
+<br>
+
+
+#### Combining Analytic and Computational methods
+
+The following section combines all previous methods into a single program, which is shown below:
+
+```{r}
+
+program <- function(blocks, Target_Harvest_Ratio) {
+  
+  Act <- numeric(12)
+  solved <- logical(length(blocks))
+  exact_count <- 0
+  
+  for (i in seq_along(blocks)) {
+  
+    m <- blocks[[i]]
+  
+    X <- as.integer(sub("Guild:", "", rownames(m)))
+    Y <- as.integer(sub("Gear:", "", colnames(m)))
+  
+    if (length(m) == 1) {
+  
+      V <- m[1, 1]
+  
+      Act[Y] <- Target_Harvest_Ratio[X] / V
+  
+      solved[i] <- TRUE
+      
+      exact_count <- exact_count + 1
+  
+    } else if (nrow(m) == ncol(m)) {
+  
+      target <-  Target_Harvest_Ratio[X]
+  
+      if (abs(det(m)) > 1e-10) {
+  
+        sol <- solve(m, target)
+  
+        if (all(sol >= 0)) {
+  
+          Act[Y] <- sol
+          solved[i] <- TRUE
+          exact_count <- exact_count + length(Y)
+  
+        }
+      }
+    } else if (nrow(m) < ncol(m)) {
+  
+      targ <- Target_Harvest_Ratio[X]
+  
+      sol <- solve_nonnegative(m, targ)
+  
+      if (sol$status == 0) {
+        Act[Y] <- sol$solution
+        solved[i] <- TRUE
+        exact_count <- exact_count + length(Y)
+      }
+  
+    }
+  }
+  
+  unsolved_matrices <- blocks[!solved]
+  
+  for (m in unsolved_matrices) {
+  
+    X <- as.integer(sub("Guild:", "", rownames(m)))
+    Y <- as.integer(sub("Gear:", "", colnames(m)))
+  
+    target <- Target_Harvest_Ratio[X]
+  
+    sol <- solve_nnls(m, target)
+  
+    Act[Y] <- sol$x
+  }
+  
+  return(list(
+    Act = Act,
+    exact_solved = exact_count
+  ))
+}
+
+```
+
+An example using the North Sea model is shown below:
+
+```{r}
+
+model_temporary <- model
+
+Target_Harvest_Ratio <- c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1) * runif(10, 0.5, 2)
+
+M <- find_matrix_M(model_temporary)
+G <- build_graph(M)
+blocks <- find_independent_blocks(G, M)
+blocks <- remove_redundant_equations(blocks, Target_Harvest_Ratio)
+
+answer <-  program(blocks, Target_Harvest_Ratio)
+
+Act <- answer$Act
+Solved <- answer$exact_solved
+
+ssr <- calculate_ssr(M, Target_Harvest_Ratio, Act)
+paste("The ssr value is", ssr)
+paste("The number of exactly solved values are", Solved)
+
+```
+
+<br>
+<br>
+<br>
+
+## Structural Analysis
+
+<br>
+
+### Connectivity of the Power Matrix
+
+<br>
+
+#### What is the connectivity?
+
+The connectivity of the power matrix was found by looking at the extent different fishing gears shared common guilds.
+
+For example, given a power matrix:
+
+$$
+Gears: \
+\begin{array}{c c}
+\text{Guilds} \\[2mm] 
+\begin{bmatrix}
+1 & 1 & 1 \\
+1 & 1 & 0 \\
+0 & 0 & 1
+\end{bmatrix}
+\end{array}
+$$
+
+Gear 1 shares 2 guilds with gear 2 and 1 guild with gear 3, while gear 2 doesn't share a guild with gear 3
+
+so a connectivity matrix will look like this:
+
+$$
+\begin{bmatrix}
+ & 2 & 1 \\
+2 &  & 0 \\
+1 & 0 & 
+\end{bmatrix}
+$$
+
+<br>
+
+#### Why is connectivity useful?
+
+Connectivity measures the extent to which different fishing gears share common guilds. It helps identify gears with similar ecological effects and highlights where fishing activities may overlap. Gears with higher connectivity share guilds with more other gears, indicating broader interactions within the ecosystem. This can help identify gears that may be particularly important when considering changes in a management plan. Additionally it can help vidualise independent subsystems within the model.
+
+<br>
+
+#### How do we calculate and plot the connectivity?
+
+To calculate this, the matrix (M) was first converted into a binary matrix indicating whether a guild was associated with each fishing gear. Matrix multiplication was then used to calculate the number of guilds shared between every pair of fishing gears. The diagonal of the resulting matrix was set to zero, as comparisons of a gear with itself is redundant.
+
+For each fishing gear, the minimum, median, and maximum number of shared guilds with all other gears were calculated. These statistics were then used to rank the fishing gears, with gears having higher median values given greater priority, followed by their maximum and minimum values. This ordering was applied consistently across the diagrams.
+
+The examples shown below used the North Sea model.
+
+<br>
+
+```{r}
+
+M <- find_matrix_M(model)
+
+table_shared <- t(M != 0) %*% (M != 0)
+
+diag(table_shared) <- 0
+
+rownames(table_shared) <- 1:nrow(table_shared)
+colnames(table_shared) <- 1:ncol(table_shared)
+
+row_stats <- t(sapply(1:nrow(table_shared), function(i) {
+  x <- table_shared[i, -i]
+
+  c(
+    Minimum = min(x),
+    Median = median(x),
+    Maximum = max(x)
+  )
+}))
+
+df_stats <- as.data.frame(row_stats)
+df_stats$Row <- gear_labels
+
+order_idx <- order(
+  df_stats$Median,
+  df_stats$Maximum,
+  df_stats$Minimum,
+  decreasing = TRUE
+)
+
+gear_order <- df_stats$Row[order_idx]
+
+```
+
+<br>
+
+The first diagram is a heatmap of the connectivity.
+
+<!-- --Description-- -->
+
+<br>
+
+```{r, fig.align='center'}
+
+df <- as.data.frame(as.table(table_shared))
+names(df) <- c("row", "col", "value")
+
+df$row <- factor(
+  df$row,
+  levels = rev(as.character(order_idx))
+)
+
+df$col <- factor(
+  df$col,
+  levels = as.character(order_idx)
+)
+
+ggplot(df, aes(x = col, y = row, fill = value)) +
+  geom_tile(colour = "grey70") +
+  scale_fill_gradient(
+    low = "white",
+    high = "red"
+  ) +
+  labs(
+    x = NULL,
+    y = NULL,
+    fill = "Shared guilds",
+    title = "Connectivity of the Power Matrix"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    plot.title = element_text(
+      hjust = 0.5,
+      size = 16
+    )
+  )
+
+```
+
+<br>
+
+The second diagram shows the minimum, median, and maximum connectivity of each fishing gear with all other gears. The gears are ordered from greatest to least connectivity based primarily on their median connectivity, followed by their maximum and minimum connectivity values. This allows gears with greater overall overlap in the guilds they affect to be compared consistently across the model.
+
+<br>
+
+```{r}
+
+df_long <- reshape(
+  df_stats,
+  varying = c("Minimum", "Median", "Maximum"),
+  v.names = "Value",
+  timevar = "Statistic",
+  times = c("Minimum", "Median", "Maximum"),
+  idvar = "Row",
+  direction = "long"
+)
+
+df_long$Row <- factor(
+  df_long$Row,
+  levels = rev(gear_order)
+)
+
+ggplot(df_long, aes(x = Row, y = Value, fill = Statistic)) +
+  geom_col(
+    position = position_dodge(width = 0.8),
+    width = 0.85
+  ) +
+  coord_flip() +
+  labs(
+    x = "",
+    y = "Value",
+    fill = "Statistics:",
+    title = "Connectivity Statistics by Gear"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16),
+    axis.text.y = element_text(size = 10),
+    axis.text.x = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13),
+    legend.position = "top"
+  )
+  
+```
+
+<br>
+
+#### Connectivity Function
+
+Here is a function that produces both plots:
+
+<br>
+
+```{r}
+
+plot_connectivity <- function(model) {
+  
+  gear_labels <- model$data$fleet.model$gear_labels
+
+  M <- find_matrix_M(model)
+
+  table_shared <- t(M != 0) %*% (M != 0)
+
+  diag(table_shared) <- 0
+
+  rownames(table_shared) <- 1:nrow(table_shared)
+  colnames(table_shared) <- 1:ncol(table_shared)
+
+
+  row_stats <- t(sapply(1:nrow(table_shared), function(i) {
+    x <- table_shared[i, -i]
+
+    c(
+      Minimum = min(x),
+      Median = median(x),
+      Maximum = max(x)
+    )
+  }))
+
+  df_stats <- as.data.frame(row_stats)
+  df_stats$Row <- gear_labels
+
+
+  order_idx <- order(
+    df_stats$Median,
+    df_stats$Maximum,
+    df_stats$Minimum,
+    decreasing = TRUE
+  )
+
+  gear_order <- df_stats$Row[order_idx]
+
+
+  df <- as.data.frame(as.table(table_shared))
+  names(df) <- c("row", "col", "value")
+
+  df$row <- factor(
+    df$row,
+    levels = rev(as.character(order_idx))
+  )
+
+  df$col <- factor(
+    df$col,
+    levels = as.character(order_idx)
+  )
+
+
+  p_heatmap <- ggplot(df, aes(x = col, y = row, fill = value)) +
+    geom_tile(colour = "grey70") +
+    scale_fill_gradient(
+      low = "white",
+      high = "red"
+    ) +
+    labs(
+      x = NULL,
+      y = NULL,
+      fill = "Shared guilds",
+      title = "Connectivity of the Power Matrix"
+    ) +
+    theme_minimal() +
+    theme(
+      panel.grid = element_blank(),
+      plot.title = element_text(
+        hjust = 0.5,
+        size = 16
+      )
+    )
+
+
+  df_long <- reshape(
+    df_stats,
+    varying = c("Minimum", "Median", "Maximum"),
+    v.names = "Value",
+    timevar = "Statistic",
+    times = c("Minimum", "Median", "Maximum"),
+    idvar = "Row",
+    direction = "long"
+  )
+
+  df_long$Row <- factor(
+    df_long$Row,
+    levels = rev(gear_order)
+  )
+
+
+  p_stats <- ggplot(df_long, aes(x = Row, y = Value, fill = Statistic)) +
+    geom_col(
+      position = position_dodge(width = 0.8),
+      width = 0.85
+    ) +
+    coord_flip() +
+    labs(
+      x = "",
+      y = "Value",
+      fill = "Statistics:",
+      title = "Connectivity Statistics by Gear"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(
+        hjust = 0.5,
+        size = 16
+      ),
+      axis.text.y = element_text(size = 10),
+      axis.text.x = element_text(size = 12),
+      axis.title = element_text(size = 14),
+      legend.text = element_text(size = 12),
+      legend.title = element_text(size = 13),
+      legend.position = "top"
+    )
+
+
+  print(p_heatmap)
+  print(p_stats)
+}
+
+```
+
+Then simply run:
+
+```{r, fig.align='center'}
+
+plot_connectivity(model)
+
+```
+
+### Bridge Analysis
+
+<br>
+
+#### What is a Bridge and how can we use it?
+
+The program developed above computes the activity values required to achieve a specified target harvest ratio. If no exact solution exists, it instead finds the best feasible approximation.
+
+Next, we investigate whether removing power values (i.e. setting selected power terms to zero) can transform a previously unsolvable problem into one that admits a solution.
+
+In graph theory, a bridge (also called a cut edge or isthmus) is an edge whose removal increases the number of connected components of a graph. In the context of this problem, removing a bridge separates the system into independent sub problems, which may make them individually solvable.
+
+for example the following graph has a single bridge on the edge B - 2
+
+```{r, echo=FALSE, fig.align='center'}
+
+edges <- c(
+  "A", "B",
+  "B", "C",
+  "C", "A",
+  "1", "2",
+  "2", "3",
+  "3", "1",
+  "B", "2"
+)
+
+g <- make_graph(edges = edges, directed = FALSE)
+
+E(g)$color <- "grey40"
+E(g)$width <- 2
+
+bridge_edge <- which(
+  apply(ends(g, E(g)), 1, function(x) all(sort(x) == sort(c("B", "2"))))
+)
+
+E(g)[bridge_edge]$color <- "red"
+E(g)[bridge_edge]$width <- 4
+
+plot(
+  g,
+  layout = layout_with_fr(g),
+  vertex.size = 30,
+  vertex.color = "lightblue",
+  vertex.label.cex = 1.2,
+  edge.width = E(g)$width,
+  edge.color = E(g)$color
+)
+
+
+```
+
+#### Why is it useful to managers?
+
+Bridges are 'weak' links within the power matrix, turning a bridge to 0 is very powerful and can result in a much more better solution _____.
+
+Additionally Bridges are really useful to ___ because if a future model has non linear ___ then it can still be used __.
+
+<br>
+
+#### How can we find bridges?
+
+The following algorithm identifies all relevant bridges in any graph:
+
+```{r}
+
+valid_bridges <- function(g) {
+
+  bridge_edges <- bridges(g)
+
+  if (length(bridge_edges) == 0) {
+    return(integer(0))
+  }
+  
+  valid <- integer(0)
+
+  for (e in bridge_edges) {
+
+    g2 <- delete_edges(g, e)
+
+    comp_sizes <- components(g2)$csize
+    
+    valid <- c(valid, e)
+  }
+  
+  blocks_minus <- find_independent_blocks( G, M )
+
+  valid
+}
+
+```
+
+<br>
+
+Given a power matrix of:
+
+```{r, echo=FALSE}
+
+model_temporary <- model
+
+mat <- as.data.frame(matrix(0, nrow = 12, ncol = 10))
+
+mat[1:4, 1:4] <- 1
+mat[5:7, 5:7] <- 1
+mat[8:9, 8:9] <- 1
+mat[10, 10] <- 1
+
+diag(mat) <- 2
+
+# The bridges:
+mat[5, 4] <- 1
+mat[8, 7] <- 1
+mat[10, 9] <- 1
+
+names(mat) <- names(model_temporary$data$fleet.model$gear_group_rel_power)
+rownames(mat) <- rownames(model_temporary$data$fleet.model$gear_group_rel_power)
+
+model_temporary$data$fleet.model$gear_group_rel_power <- mat
+
+rownames(mat) <- gear_labels
+
+kable(mat, row.names = TRUE)
+
+```
+
+The bridges are:
+
+```{r}
+
+M <- find_matrix_M(model_temporary)
+G <- build_graph(M)
+
+valid <- valid_bridges(G)
+ends <- ends(G, valid)
+
+guild_index <- as.numeric( sub("Guild:", "", ends[, 1]) )
+gear_index <- as.numeric( sub("Gear:", "", ends[, 2]) )
+
+gear_labels <- model_temporary$data$fleet.model$gear_labels
+
+new_ends <- cbind(
+  guild_labels[guild_index],
+  gear_labels[gear_index]
+)
+
+print(new_ends)
+
+```
+
+<br>
+
+#### Bridges for pairs of edges
+
+Bridges identify single edges whose removal disconnects a graph. However, some graphs can only be disconnected by removing a pair of edges. Single bridges are identified and removed first, ensuring that the algorithm only considers edge pairs that represent additional disconnecting structures within the remaining graph. 
+
+The following example has 1 double bridge, A - 1 and B - 2
+
+```{r, echo=FALSE, fig.align='center'}
+
+edges <- c(
+  "A", "B",
+  "B", "C",
+  "C", "A",
+  "1", "2",
+  "2", "3",
+  "3", "1",
+  "B", "2",
+  "A", "1",
+  "C", "D",
+  "B", "D",
+  "3", "4",
+  "1", "4"
+)
+
+g <- make_graph(edges = edges, directed = FALSE)
+
+E(g)$color <- "grey40"
+E(g)$width <- 2
+
+bridge_edges <- which(
+  apply(ends(g, E(g)), 1, function(x)
+    all(sort(x) == sort(c("B", "2"))) ||
+    all(sort(x) == sort(c("A", "1")))
+  )
+)
+
+E(g)[bridge_edges]$color <- "red"
+E(g)[bridge_edges]$width <- 4
+
+plot(
+  g,
+  layout = layout_with_fr(g),
+  vertex.size = 30,
+  vertex.color = "lightblue",
+  vertex.label.cex = 1.2,
+  edge.width = E(g)$width,
+  edge.color = E(g)$color
+)
+
+```
+
+
+The algorithm is shown below:
+
+<br>
+
+```{r}
+
+valid_edge_pairs <- function(g) {
+
+  edge_ids <- seq_len(ecount(g))
+
+  if (length(edge_ids) < 2) {
+    return(list())
+  }
+
+  bridge_edges <- bridges(g)
+
+  edge_pairs <- combn(setdiff(edge_ids, bridge_edges), 2, simplify = FALSE)
+
+  valid <- list()
+
+  for (pair in edge_pairs) {
+
+    g2 <- delete_edges(g, pair)
+
+    comp <- components(g2)
+
+    if (comp$no >= 2) {
+      valid[[length(valid) + 1]] <- pair
+    }
+  }
+
+  valid
+}
+
+```
+
+<br>
+
+Given a power matrix of:
+
+```{r, echo=FALSE}
+
+model_temporary <- model
+
+mat <- as.data.frame(matrix(0, nrow = 12, ncol = 10))
+
+mat[1:4, 1:4] <- 1
+mat[5:7, 5:7] <- 1
+mat[8:9, 8:9] <- 1
+mat[10, 10] <- 1
+
+diag(mat) <- 2
+
+# The double bridges:
+
+mat[5, 4] <- 1
+mat[4, 5] <- 1
+
+mat[7, 8] <- 1
+mat[8, 7] <- 1
+
+mat[9, 10] <- 1
+mat[10, 9] <- 1
+
+names(mat) <- names(model_temporary$data$fleet.model$gear_group_rel_power)
+rownames(mat) <- rownames(model_temporary$data$fleet.model$gear_group_rel_power)
+
+model_temporary$data$fleet.model$gear_group_rel_power <- mat
+
+rownames(mat) <- gear_labels
+
+kable(mat, row.names = TRUE)
+
+```
+
+<br>
+
+The bridges are:
+
+```{r}
+
+M <- find_matrix_M(model_temporary)
+G <- build_graph(M)
+
+valid <- valid_edge_pairs(G)
+ends <- lapply(valid, function(x) ends(G, x))
+
+new_mat_list <- lapply(ends, function(mat) {
+  
+  guild_index <- as.numeric( sub("Guild:", "", mat[, 1]) )
+  gear_index <- as.numeric( sub("Gear:", "", mat[, 2]) )
+
+  new_mat <- cbind(
+    guild_labels[guild_index],
+    gear_labels[gear_index]
+  )
+
+  new_mat
+  
+})
+
+print(new_mat_list)
+
+```
+
+<br>
+
+#### Bridges for k edges
+
+Some graphs cannot be disconnected by removing a single edge or a pair of edges, but can be disconnected by removing a larger set of edges. These are referred to here as k-edge cuts, where k is the number of edges that must be removed to disconnect the graph.
+
+The algorithm tests combinations of k edges and identifies those whose removal disconnects the graph into separate components. To ensure that only minimal cuts are retained, any combination containing a smaller disconnecting set is excluded. This prevents the same disconnection from being identified at multiple values of k.
+
+The minimum component size can also be specified to exclude cuts that isolate only a single node. This focuses the analysis on cuts that divide the system into meaningful independent sub-problems.
+
+<br>
+
+```{r}
+
+valid_edge_cuts <- function(g, k, min_size = 2) {
+
+  edge_ids <- seq_len(ecount(g))
+
+  bridge_edges <- bridges(g)
+  candidate_edges <- setdiff(edge_ids, bridge_edges)
+
+  if (length(candidate_edges) < k) {
+    return(list())
+  }
+
+  edge_sets <- combn(
+    candidate_edges,
+    k,
+    simplify = FALSE
+  )
+
+  valid <- list()
+
+  for (edge_set in edge_sets) {
+
+    g2 <- delete_edges(g, edge_set)
+    comp <- components(g2)
+    
+    if (comp$no < 2) {
+      next
+    }
+
+    if (min(comp$csize) < min_size) {
+      next
+    }
+
+    is_minimal <- TRUE
+
+    for (j in seq_len(k - 1)) {
+
+      smaller_sets <- combn(
+        edge_set,
+        j,
+        simplify = FALSE
+      )
+
+      for (small_set in smaller_sets) {
+
+        g_small <- delete_edges(g, small_set)
+
+        if (!is_connected(g_small)) {
+          is_minimal <- FALSE
+          break
+        }
+      }
+
+      if (!is_minimal) {
+        break
+      }
+    }
+
+    if (is_minimal) {
+      valid[[length(valid) + 1]] <- edge_set
+    }
+  }
+
+  valid
+}
+
+```
+
+<br>
+
+An example is shown below:
+
+<br>
+
+```{r}
+
+model_temporary <- model
+
+mat <- as.data.frame(matrix(0, nrow = 12, ncol = 10))
+
+mat[1:4, 1:4] <- 1
+mat[5:7, 5:7] <- 1
+mat[8:9, 8:9] <- 1
+mat[10, 10] <- 1
+
+diag(mat) <- 2
+
+# The bridges:
+
+mat[5, 4] <- 1
+mat[4, 5] <- 1
+
+mat[7, 8] <- 1
+mat[8, 7] <- 1
+
+mat[9, 10] <- 1
+mat[10, 9] <- 1
+
+names(mat) <- names(model_temporary$data$fleet.model$gear_group_rel_power)
+rownames(mat) <- rownames(model_temporary$data$fleet.model$gear_group_rel_power)
+
+model_temporary$data$fleet.model$gear_group_rel_power <- mat
+
+M <- find_matrix_M(model_temporary)
+G <- build_graph(M)
+
+valid <- valid_edge_cuts(G, 2)
+ends <- lapply(valid, function(x) ends(G, x))
+
+new_mat_list <- lapply(ends, function(mat) {
+  
+  guild_index <- as.numeric( sub("Guild:", "", mat[, 1]) )
+  gear_index <- as.numeric( sub("Gear:", "", mat[, 2]) )
+
+  new_mat <- cbind(
+    guild_labels[guild_index],
+    gear_labels[gear_index]
+  )
+
+  new_mat
+  
+})
+
+print(new_mat_list)
+
+```
+
+
+<br>
+
+#### Bridge General Function
+
+The general_bridge_analysis() function is used to identify minimum sets of edges in the graph whose removal disconnects the graph, and to evaluate how removing each of these edge sets affects the model's performance.
+
+- Cut Number identifies the particular cut being considered.
+- Cut Size indicates how many edges need to be removed to create that cut
+- Smaller Cut Size indicates the number of nodes in the smallest connected component created after the edgess are removed. A larger smaller_cut_size indicated that the networkhas been divided into more evenly sized components, meaning the cut has a greater effect on the overall network structure.
+
+
+```{r}
+
+general_bridge_analysis <- function(G, M, y) {
+  
+  guild_labels <- c(
+    "Planktivorous_fish",
+    "Demersal_fish",
+    "Migratory_fish",
+    "Benthos_susp-dep",
+    "Benthos_carn-scav",
+    "Zooplankton_carn",
+    "Birds",
+    "Pinnipeds",
+    "Cetaceans",
+    "Macrophytes"
+  )
+  
+  blocks <- find_independent_blocks(G, M)
+  blocks <- remove_redundant_equations(blocks, y)
+  answer <- program(blocks, y)
+  Act <- answer$Act
+  SSR <- calculate_ssr(M, y, Act)
+
+
+  original_components <- components(G)$no
+  n_edges <- ecount(G)
+  
+  minimum_cuts <- NULL
+  min_cut_size <- NULL
+  
+  for (cut_size in seq_len(n_edges)) {
+    
+    message("Checking cuts of size ", cut_size, "...")
+    
+    edge_combinations <- combn(
+      seq_len(n_edges),
+      cut_size,
+      simplify = FALSE
+    )
+    
+    disconnecting_cuts <- edge_combinations[
+      vapply(
+        edge_combinations,
+        function(edge_set) {
+          
+          G_test <- delete_edges(G, edge_set)
+          components(G_test)$no > original_components
+          
+        }, logical(1) )
+    ]
+
+    if (length(disconnecting_cuts) > 0) {
+      
+      minimum_cuts <- disconnecting_cuts
+      min_cut_size <- cut_size
+      
+      break
+    }
+  }
+
+  if (is.null(minimum_cuts)) {
+    return(data.frame(
+      cut_number = integer(0),
+      edge_number = integer(0),
+      guild_labels = character(0),
+      gear_labels = character(0),
+      cut_size = integer(0),
+      smaller_cut_size = integer(0),
+      SSR = numeric(0),
+      percent_change = numeric(0)
+    ))
+  }
+
+  results_list <- vector("list", length(minimum_cuts))
+  
+  for (i in seq_along(minimum_cuts)) {
+    
+    cut_edges <- minimum_cuts[[i]]
+
+    G_new <- delete_edges(G, cut_edges)
+    
+    comp <- components(G_new)
+    
+    smaller_cut_size <- min(comp$csize)
+    
+    M_new <- M
+    
+    blocks_new <- find_independent_blocks(G_new, M_new)
+    blocks_new <- remove_redundant_equations(blocks_new, y)
+    
+    answer_new <- program(blocks_new, y)
+    
+    Act_new <- answer_new$Act
+    
+    SSR_new <- calculate_ssr(M_new, y, Act_new)
+    
+    percent_change <- ((SSR_new - SSR) / SSR) * 100
+
+    edge_ends <- ends(G, cut_edges)
+    
+    from_indices <- as.integer( sub("Guild:", "", edge_ends[, 1]) )
+    to_indices <- as.integer( sub("Gear:", "", edge_ends[, 2]) )
+    
+    results_list[[i]] <- data.frame(
+      cut_number = i,
+      edge_number = cut_edges,
+      guild_labels = guild_labels[from_indices],
+      gear_labels = gear_labels[to_indices],
+      cut_size = min_cut_size,
+      smaller_cut_size = smaller_cut_size,
+      SSR = SSR_new,
+      percent_change = percent_change
+    )
+  }
+
+  results <- do.call(rbind, results_list)
+  rownames(results) <- NULL
+  
+  return(results)
+}
+
+M <- find_matrix_M(model)
+G <- build_graph(M)
+y <- c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+
+res <- general_bridge_analysis(G, M, y)
+kable(res)
+
+```
+
+<br>
+
+Once you have a edge you want to remove you can then run delete_edges(G, edge_number) to delete the edge from the graph and then run the function again
+
+```{r}
+
+G <- delete_edges(G, 63)
+G <- delete_edges(G, 39)
+
+res <- general_bridge_analysis(G, M, y)
+kable(res)
+
+```
+
+<br>
+<br>
+<br>
+
+## Sensitivity and Leverage
+
+<br>
+
+### Harvest Ratio Analysis / Leverage
+
+<br>
+
+#### Setting Guilds to Zero
+
+This analysis examines how the solution changes when the harvest ratio constraint for each fishing guild is removed individually. For each guild, its corresponding row in the equations matrix is set to zero while all other constraints are retained. The model is then solved and the resulting sum of squared residuals (SSR) is calculated. Comparing SSR across guilds identifies which harvest ratio constraints are most important for obtaining an exact or near-exact solution. A guild whose removal produces a larger SSR has a greater influence on the ability of the model to satisfy the specified harvest ratio targets.
+
+<br>
+
+```{r, fig.align='center'}
+
+Target_Harvest_Ratio <- c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1) * runif(10, 0.5, 2)
+
+M <- find_matrix_M(model)
+
+excluded_guilds <- which(rowSums(M != 0) == 0)
+available_guilds <- setdiff(seq_len(nrow(M)), excluded_guilds)
+
+guild_labels_num <- c("None", available_guilds)
+
+ssr_values <- sapply(c(0, available_guilds), function(i) {
+
+  if (i == 0) {
+    Equations_Matrix <- M
+    Target_HR <- Target_Harvest_Ratio
+  } else {
+    Equations_Matrix <- M
+    Equations_Matrix[i, ] <- 0
+    Target_HR <- Target_Harvest_Ratio
+  }
+
+  G <- build_graph(Equations_Matrix)
+  blocks <- find_independent_blocks(G, Equations_Matrix)
+
+  answer <-  program(blocks, Target_HR)
+
+  Act <- answer$Act
+  Solved <- answer$exact_solved
+
+  num <- sum(rowSums(Equations_Matrix != 0) > 0)
+
+  if (Solved == num) {
+    0
+  } else {
+    calculate_ssr(Equations_Matrix, Target_HR, Act)
+  }
+
+})
+
+
+barplot(ssr_values,
+        col = "#9ECAE1",
+        names.arg = guild_labels_num,
+        main = "Effect of Removing Harvest Ratio Constraints \n on Non-Negative Least Squares Solution Error",
+        xlab = "Harvest Ratio Guild Removed",
+        ylab = "Sum of Squared Residuals (SSR)")
+
+```
+
+<br>
+
+#### Varying Guilds
+
+This analysis investigates the effect of gradually changing the strength of each guild's harvest ratio constraint. Each constraint is scaled from 0% to 100% of its original value in 1% increments, and the model is solved at each level. The resulting sum of squared residuals (SSR) is recorded to show how model error changes as the constraint is progressively restored. This provides a more continuous assessment of the influence of each guild than simply removing a constraint entirely.
+
+<br>
+
+```{r, fig.align='center'}
+
+Target_Harvest_Ratio <- c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+
+M <- find_matrix_M(model)
+
+excluded_guilds <- which(rowSums(M != 0) == 0)
+available_guilds <- setdiff(seq_len(nrow(M)), excluded_guilds)
+
+percentages <- seq(0, 1, by = 0.01)
+
+ssr_results <- data.frame()
+
+for (i in available_guilds) {
+
+  for (p in percentages) {
+
+    Equations_Matrix <- M
+
+    Equations_Matrix[i, ] <- M[i, ] * p
+
+    Target_HR <- Target_Harvest_Ratio
+
+    G <- build_graph(Equations_Matrix)
+    blocks <- find_independent_blocks(G, Equations_Matrix)
+
+    answer <- program(blocks, Target_HR)
+
+    Act <- answer$Act
+    Solved <- answer$exact_solved
+
+    num <- sum(rowSums(Equations_Matrix != 0) > 0)
+
+    if (Solved == num) {
+      ssr <- 0
+    } else {
+      ssr <- calculate_ssr(
+        Equations_Matrix,
+        Target_HR,
+        Act
+      )
+    }
+
+    ssr_results <- rbind(
+      ssr_results,
+      data.frame(
+        Guild = i,
+        Guild_Label = guild_labels[i + 1],
+        Percentage = p * 100,
+        SSR = ssr
+      )
+    )
+  }
+}
+
+
+ggplot(ssr_results,
+       aes(x = Percentage,
+           y = SSR,
+           colour = Guild_Label,
+           group = Guild)) +
+  geom_line(linewidth = 1) +
+  labs(
+    title = "Effect of Gradually Restoring Guild Harvest Ratio Constraints",
+    x = "Guild Constraint (% of Original)",
+    y = "Sum of Squared Residuals (SSR)",
+    colour = "Guild"
+  ) +
+  theme_minimal() +
+  scale_x_continuous(
+    limits = c(0, 100),
+    breaks = seq(0, 100, 10)
+  )
+
+
+```
+
+<br>
+
+#### Harvest Ratio Leverage
+
+Harvest Ratio Leverage measures the influence of each harvest ratio equation within the active non-negative least squares solution. The calculation first identifies the variables with positive estimated activity and constructs the corresponding active design matrix. A QR decomposition is then used to calculate the leverage associated with each harvest ratio equation. Higher leverage indicates that the corresponding equation has greater influence on the fitted solution, while a lower leverage indicates less influence within the active set of variables.
+
+<br>
+
+```{r, fig.align='center'}
+
+calculate_nnls_leverage <- function(M, x, tol = 1e-10) {
+
+  active <- x > tol
+
+  if (!any(active)) { return(rep(0, nrow(M))) }
+
+  M_active <- M[, active, drop = FALSE]
+  
+  Q <- qr.Q(qr(M_active))
+  
+  leverage <- rowSums(Q^2)
+  
+  names(leverage) <- rownames(M)
+  
+  return(leverage)
+}
+
+M <- find_matrix_M(model)
+y <- c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+x <- solve_nnls(M, y)$x
+
+leverage <- calculate_nnls_leverage(M, x)
+
+# Plotting the leverage on a bar graph
+guild_labels <- 1:length(leverage)
+
+barplot(leverage,
+        col = "#9ECAE1",
+        names.arg = guild_labels,
+        main = "Harvest Ratio Leverage by Fishing Guild",
+        xlab = "Harvest Ratio Guild Index",
+        ylab = "Harvest Ratio Leverage",
+        ylim = c(0, 1.05))
+
+```
+
+For the North Sea model, most guilds have a harvest ratio close to 1. Guild 10 (Macrophytes) has a leverage value of 0, as there are no power values affecting this guild.
+
+More interestingly, Guilds 7 and 8, representing Birds and Pinnipeds respectively, has leverage values close to 0. This suggests that, despite being subject to harvesting, changes in their associated power values have relatively little influence on their harvest ratios.
+
+<br>
+
+### Power Analysis
+
+<br>
+
+#### Power Analysis - Removing individual powers
+
+This analysis tests the sensitivity of the model to individual power values. Each non-zero element of the relative power matrix is removed one at a time by setting it to zero. The modified model is then solved using the harvest ratio targets, and the number of equations solved exactly is recorded. The resulting matrix identifies which individual power relationships can be removed while still allowing the model to solve all required equations.
+
+
+```{r, fig.align='center'}
+
+Target_Harvest_Ratio <- c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+Power <- model$data$fleet.model$gear_group_rel_power
+
+output <- matrix(0, nrow = nrow(Power), ncol = ncol(Power), dimnames = dimnames(Power))
+
+for (i in seq_len(nrow(Power))) {
+  for (j in seq_len(ncol(Power))) {
+    
+    Power <- model$data$fleet.model$gear_group_rel_power
+
+    if (Power[i, j] != 0) {
+      
+      model_temp <- model
+
+      Power[i, j] <- 0
+      
+      model_temp$data$fleet.model$gear_group_rel_power <- Power
+      
+      M <- find_matrix_M(model_temp)
+      G <- build_graph(M)
+      blocks <- find_independent_blocks(G, M)
+
+      result <- program(blocks[1], Target_Harvest_Ratio)
+      result <- result$exact_solved
+
+      if (result == 9) {
+        output[i, j] <- 1
+      } else {
+        output[i, j] <- 2
+      }
+    }
+  }
+}
+
+df <- as.data.frame(as.table(output))
+names(df) <- c("row", "col", "value")
+
+ggplot(df, aes(x = col, y = row, fill = factor(value))) +
+  geom_tile(colour = "grey70") +
+  scale_fill_manual(
+    values = c(
+      "0" = "white",
+      "1" = "green",
+      "2" = "red"
+    ),
+    labels = c(
+      "0" = "Already 0",
+      "1" = "successfully Solves",
+      "2" = "Doesn't Solve"
+    ),
+    name = NULL
+  ) +
+  scale_y_discrete(limits = rev) +
+  labs(
+    x = NULL,
+    y = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank()
+  )
+
+```
+
+<br>
+
+#### Power Analysis - Effect on SSR
+
+This analysis examines how removing individual power values affects the model's solution error. The original model is first solved and its sum of squared residuals (SSR) is calculated. Each non-zero power relationship is then removed individually, the model is re-solved, and the resulting SSR is compared with the original value. The percentage change in SSR provides a measure of how sensitive the model's fit is to each individual power relationship.
+
+```{r}
+
+Target_Harvest_Ratio <- c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+Power <- model$data$fleet.model$gear_group_rel_power
+
+M <- find_matrix_M(model)
+G <- build_graph(M)
+blocks <- find_independent_blocks(G, M)
+
+result <- program(blocks[1], Target_Harvest_Ratio)
+act <- result$Act
+      
+ssr_original <- calculate_ssr(M, Target_Harvest_Ratio, act)
+
+output <- matrix(0, nrow = nrow(Power), ncol = ncol(Power), dimnames = dimnames(Power))
+
+for (i in seq_len(nrow(Power))) {
+  for (j in seq_len(ncol(Power))) {
+    
+    Power <- model$data$fleet.model$gear_group_rel_power
+
+    if (Power[i, j] != 0) {
+      
+      model_temp <- model
+
+      Power[i, j] <- 0
+      
+      model_temp$data$fleet.model$gear_group_rel_power <- Power
+      
+      M <- find_matrix_M(model_temp)
+      G <- build_graph(M)
+      blocks <- find_independent_blocks(G, M)
+
+      result <- program(blocks[1], Target_Harvest_Ratio)
+      act <- result$Act
+      
+      ssr <- calculate_ssr(M, Target_Harvest_Ratio, act)
+      
+      percentage_differece <- ((ssr - ssr_original)/(ssr_original)) * 100
+      
+      output[i, j] <- percentage_differece
+    }
+  }
+}
+
+print(output)
+
+
+```
+
+<br>
+
+#### Checks pairs of powers
+
+This analysis extends the individual power-removal test by examining pairs of non-zero gear-group power relationships simultaneously. Every possible pair of non-zero power values is identified and removed from the model. The modified model is then solved using the target harvest ratios, and only pairs that allow all required equations to be solved exactly are retained. This identifies combinations of two power relationships that can be removed without preventing the model from finding an exact solution.
+
+```{r}
+
+Target_Harvest_Ratio <- c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+
+Power <- model$data$fleet.model$gear_group_rel_power
+
+nonzero <- which(Power != 0, arr.ind = TRUE)
+
+pairs <- combn(seq_len(nrow(nonzero)), 2)
+
+output <- data.frame(
+  row1 = integer(),
+  col1 = integer(),
+  row2 = integer(),
+  col2 = integer()
+)
+
+for (p in seq_len(ncol(pairs))) {
+
+  i1 <- nonzero[pairs[1, p], 1]
+  j1 <- nonzero[pairs[1, p], 2]
+
+  i2 <- nonzero[pairs[2, p], 1]
+  j2 <- nonzero[pairs[2, p], 2]
+
+  Power_temp <- model$data$fleet.model$gear_group_rel_power
+
+  Power_temp[i1, j1] <- 0
+  Power_temp[i2, j2] <- 0
+
+  model_temp <- model
+  model_temp$data$fleet.model$gear_group_rel_power <- Power_temp
+
+  M <- find_matrix_M(model_temp)
+  G <- build_graph(M)
+  blocks <- find_independent_blocks(G, M)
+
+  result <- program(blocks[1], Target_Harvest_Ratio)
+  result <- result$exact_solved
+
+  if (result == 9) {
+    output <- rbind(
+      output,
+      data.frame(
+        row1 = i1,
+        col1 = j1,
+        row2 = i2,
+        col2 = j2
+      )
+    )
+  }
+}
+
+print(output)
+
+```
+
+<br>
+
+#### General Power Combinations
+
+This function generalises the power-removal analysis to combinations of an arbitrary number of power values. The user specifies the number of power values to remove, and the function evaluates every possible combination of that size. For each combination, the selected power relationships are set to zero, the model is rebuilt and solved, and combinations that successfully solve all required equations are recorded. Progress information is printed during the analysis so that larger combination searches can be monitored.
+
+<br>
+
+```{r}
+
+find_working_power_combinations <- function(model, n, Target_Harvest_Ratio) {
+
+  Power <- model$data$fleet.model$gear_group_rel_power
+
+  nonzero <- which(Power != 0, arr.ind = TRUE)
+
+  if (n > nrow(nonzero)) {
+    stop("n is larger than the number of non-zero powers.")
+  }
+
+  combinations <- combn(seq_len(nrow(nonzero)), n)
+  total <- ncol(combinations)
+
+  cat("Testing", total, "combinations of", n, "powers...\n")
+
+  output <- list()
+
+  last_percent <- 0
+
+  for (p in seq_len(total)) {
+
+    # Update progress every 1%
+    percent <- floor(100 * p / total)
+
+    if (percent > last_percent) {
+      cat(percent, "% complete\n")
+      last_percent <- percent
+    }
+
+    selected <- nonzero[combinations[, p], , drop = FALSE]
+
+    Power_temp <- Power
+
+    for (k in seq_len(n)) {
+      Power_temp[selected[k, 1], selected[k, 2]] <- 0
+    }
+
+    model_temp <- model
+    model_temp$data$fleet.model$gear_group_rel_power <- Power_temp
+
+    M <- find_matrix_M(model_temp)
+    G <- build_graph(M)
+    blocks <- find_independent_blocks(G, M)
+
+    result <- program(blocks[1], Target_Harvest_Ratio)
+    result <- result$exact_solved
+
+    if (result == 9) {
+      cat(
+        "WORKS:",
+        paste(
+          paste0("(", selected[, 1], ",", selected[, 2], ")"),
+          collapse = " + "
+        ),
+        "\n"
+      )
+
+      output[[length(output) + 1]] <- as.vector(t(selected))
+    }
+  }
+
+  cat("100 % complete\n")
+  cat("Finished! Working combinations:", length(output), "\n")
+
+  if (length(output) == 0) {
+    return(NULL)
+  }
+
+  output <- do.call(rbind, output)
+
+  colnames(output) <- as.vector(
+    rbind(
+      paste0("row", seq_len(n)),
+      paste0("col", seq_len(n))
+    )
+  )
+
+  as.data.frame(output)
+}
+
+# Target_Harvest_Ratio <- c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+# output <- find_working_power_combinations(model, 4, Target_Harvest_Ratio)
+# 
+# print(output)
+
+```
+
+<br>
+
+### Power Derivative
+
+<br>
+
+#### Derivative of Sum of Residual Squares with respect to individual power
+
+The Power Derivative analysis measures how sensitive the model's sum of squared residuals (SSR) is to small changes to each non-zero power value. For each power value, the analysis calculates the model solution after slightly increasing the power and again after slightly decreasing it. A central finite difference is then used to estimate the derivative of SSR with respect to that power value. The resulting derivative matrix indicates how small changes in individual power relationships affect the model's residual error.
+
+<br>
+
+```{r}
+
+calculate_ssr_power_derivatives <- function( model, y, power_change = 1e-6 ) {
+
+  Power <- as.matrix(model$data$fleet.model$gear_group_rel_power)
+
+  derivatives <- matrix(
+    NA,
+    nrow = nrow(Power),
+    ncol = ncol(Power),
+    dimnames = dimnames(Power)
+  )
+  
+  for (gear in seq_len(nrow(Power))) {
+    
+    for (guild in seq_len(ncol(Power))) {
+
+      if (Power[gear, guild] != 0) {
+
+        model_plus <- model
+        
+        Power_plus <- Power
+        Power_plus[gear, guild] <- Power_plus[gear, guild] + power_change
+        
+        model_plus$data$fleet.model$gear_group_rel_power <- Power_plus
+        
+        M_plus <- find_matrix_M(model_plus)
+        
+        G_plus <- build_graph(M_plus)
+        blocks_plus <- find_independent_blocks( G_plus, M_plus )
+        blocks_plus <- remove_redundant_equations( blocks_plus, y )
+        
+        answer_plus <- program( blocks_plus, y )
+        
+        Act_plus <- answer_plus$Act
+        
+        SSR_plus <- calculate_ssr( M_plus, y, Act_plus )
+        
+        model_minus <- model
+        
+        Power_minus <- Power
+        Power_minus[gear, guild] <- Power_minus[gear, guild] - power_change
+        
+        model_minus$data$fleet.model$gear_group_rel_power <- Power_minus
+        
+        M_minus <- find_matrix_M(model_minus)
+        
+        G_minus <- build_graph(M_minus)
+        blocks_minus <- find_independent_blocks( G_minus, M_minus )
+        blocks_minus <- remove_redundant_equations( blocks_minus, y )
+        
+        answer_minus <- program( blocks_minus, y )
+        
+        Act_minus <- answer_minus$Act
+        
+        SSR_minus <- calculate_ssr( M_minus, y, Act_minus )
+        
+        derivatives[gear, guild] <- (SSR_plus - SSR_minus) / (2 * power_change)
+      }
+    }
+  }
+  
+  return(derivatives)
+}
+
+Target <- c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+
+dev <- calculate_ssr_power_derivatives(model, Target)
+
+print(dev)
+
+```
+
+<br>
+
+#### Power Derivative - Heatmap
+
+This heatmap visualises the estimated derivatives of SSR with respect to the gear-group power relationships. Each cell represents the sensitivity of the model's residual error to a particular power value. Values near zero indicate relatively little local sensitivity, while larger positive or negative values indicate that small changes in the corresponding power relationship have a greater effect on SSR. Zero or unavailable power relationships are represented separately from the calculated derivatives.
+
+<br>
+
+```{r, fig.align='center'}
+
+df <- as.data.frame(as.table(dev))
+names(df) <- c("row", "col", "value")
+
+max_abs <- max(abs(df$value), na.rm = TRUE)
+
+ggplot(df, aes(x = col, y = row, fill = value)) +
+  geom_tile(colour = "grey70") +
+  scale_fill_gradient2(
+    low = "red",
+    mid = "white",
+    high = "green",
+    midpoint = 0,
+    limits = c(-max_abs, max_abs),
+    na.value = "grey70",
+    name = "dSSR / dPower"
+  ) +
+  scale_y_discrete(limits = rev) +
+  labs(
+    x = NULL,
+    y = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank()
+  )
+
+```
+
+<br>
+<br>
+<br>
+
+## Final Figure
+
+### The Final Figure
+
+The final figure brings together three complementary analyses to show how close the North Sea model is to achieving the specified harvest-ratio targets and which features of the system have the greatest influence on the solution.
+
+The first panel shows the **original sum of squared residuals (SSR)** obtained from the model. SSR measures the overall difference between the target harvest ratios and those produced by the calculated fishing-gear activity values. A value of zero indicates that all applicable harvest-ratio constraints have been satisfied exactly, while a larger value indicates that the target vector cannot be reproduced exactly by the current system. The first panel therefore provides a baseline against which the effects of subsequent structural changes can be compared.
+
+The second panel examines the effect of **removing bridge connections** from the system. A bridge is a power value whose removal disconnects the graph into separate components. Each bridge is removed individually, the resulting system is solved again, and the change in SSR is calculated relative to the original solution. This identifies connections where a small structural change could substantially alter the ability of the model to achieve the target harvest ratios. A larger improvement in SSR indicates that the corresponding connection has a strong influence on the feasibility of the solution.
+
+The third panel examines the effect of **changing influential fishing-power values**. The three power terms with the largest estimated SSR derivatives are selected, and each is varied from 0% to 200% of its original value. The resulting change in SSR is plotted across this range. This shows whether increasing or decreasing a particular power relationship improves or worsens the model's ability to reproduce the target harvest ratios, and whether the relationship has a strong or weak influence on model fit.
+
+Together, the three panels provide different perspectives on the same question: **how can the model move closer to an exact solution?** The first panel establishes how far the original solution is from the target, the second identifies structural connections whose removal can change the solution, and the third identifies power relationships where changes in magnitude can influence the residual error. This allows the feasibility of the target harvest ratios to be considered not only in terms of whether an exact solution exists, but also in terms of which structural or parameter changes have the greatest potential to improve the solution.
+
+<br>
+
+```{r, fig.align='center'}
+
+
+guild_labels <- c(
+  "Planktivorous_fish",
+  "Demersal_fish",
+  "Migratory_fish",
+  "Benthos_susp-dep",
+  "Benthos_carn-scav",
+  "Zooplankton_carn",
+  "Birds",
+  "Pinnipeds",
+  "Cetaceans",
+  "Macrophytes"
+  )
+
+model_temporary <- model
+
+Target_Harvest_Ratio <- rep(1, 10) * runif(10, 0.5, 2)
+
+M <- find_matrix_M(model_temporary)
+G <- build_graph(M)
+blocks <- find_independent_blocks( G, M )
+blocks <- remove_redundant_equations( blocks, Target_Harvest_Ratio )
+
+answer <- program( blocks, Target_Harvest_Ratio )
+
+Act <- answer$Act
+
+Solved <- answer$exact_solved
+
+ssr <- calculate_ssr( M, Target_Harvest_Ratio, Act )
+
+
+calculate_bridge_ssr <- function(G, M, y) {
+  
+  blocks <- find_independent_blocks( G, M )
+  blocks <- remove_redundant_equations( blocks, y )
+  
+  answer <- program( blocks, y )
+  
+  Act <- answer$Act
+  
+  SSR <- calculate_ssr( M, y, Act )
+  
+  bridge_edges <- bridges(G)
+
+  if (length(bridge_edges) == 0) {
+    
+    return(
+      list(
+        edge_numbers = integer(0),
+        SSR = numeric(0)
+      )
+    )
+  }
+  
+  edge_numbers <- as.integer( bridge_edges )
+
+  SSR_list <- numeric( length(bridge_edges) )
+
+  for (i in seq_along(bridge_edges)) {
+    
+    e <- bridge_edges[i]
+    
+    G_new <- delete_edges( G, e )
+    
+    M_new <- M
+    
+    blocks_new <- find_independent_blocks( G_new, M_new )
+    blocks_new <- remove_redundant_equations( blocks_new, y )
+    
+    answer_new <- program( blocks_new, y )
+    
+    Act_new <- answer_new$Act
+    
+    SSR_new <- calculate_ssr( M_new, y, Act_new )
+    
+    SSR_list[i] <- SSR_new
+  }
+  
+  return(
+    list(
+      edge_numbers = edge_numbers,
+      SSR = SSR_list
+    )
+  )
+}
+
+calculate_power_ssr_curve <- function( model, y, row, col, n = 101 ) {
+  
+  Power <- as.matrix( model$data$fleet.model$gear_group_rel_power )
+
+  original_power <- Power[row, col]
+
+  percentages <- seq( 0, 200, length.out = n )
+
+  ssr_values <- numeric(n)
+
+  for (i in seq_along(percentages)) {
+    
+    model_modified <- model
+    
+    Power_modified <- Power
+
+    Power_modified[row, col] <- original_power * percentages[i] / 100
+
+    model_modified$data$fleet.model$gear_group_rel_power <- Power_modified
+
+    M_modified <- find_matrix_M( model_modified )
+    G_modified <- build_graph( M_modified )
+    
+    blocks_modified <- find_independent_blocks( G_modified, M_modified )
+    blocks_modified <- remove_redundant_equations( blocks_modified, y )
+
+    answer <- program( blocks_modified, y )
+    
+    ssr_values[i] <- calculate_ssr( M_modified, y, answer$Act )
+  }
+  
+  
+  data.frame( percentage = percentages, SSR = ssr_values )
+}
+
+mat <- calculate_ssr_power_derivatives( model, Target_Harvest_Ratio )
+
+idx <- arrayInd(
+  order(mat)[1:3],
+  dim(mat)
+)
+
+colnames(idx) <- c(
+  "row",
+  "col"
+)
+
+M <- find_matrix_M( model )
+G <- build_graph( M )
+
+blocks <- find_independent_blocks( G, M )
+blocks <- remove_redundant_equations( blocks, Target_Harvest_Ratio )
+
+answer <- program( blocks, Target_Harvest_Ratio )
+
+Act <- answer$Act
+
+original_ssr <- calculate_ssr( M, Target_Harvest_Ratio, Act )
+
+curves <- do.call(
+  rbind,
+  lapply(
+    seq_len(nrow(idx)),
+    function(i) {
+      
+      result <- calculate_power_ssr_curve(
+        model = model,
+        y = Target_Harvest_Ratio,
+        row = idx[i, "row"],
+        col = idx[i, "col"]
+      )
+
+      result$Power <- paste0(
+        gear_labels[idx[i, "row"]],
+        " + ",
+        guild_labels[idx[i, "col"]]
+      )
+      
+      result
+    }
+  )
+)
+
+
+curves$SSR_change <- original_ssr - curves$SSR
+
+df <- data.frame(
+  name = "Total SSR",
+  ssr = ssr
+)
+
+val <- calculate_bridge_ssr( G, M, Target_Harvest_Ratio )
+
+edge_numbers <- val$edge_numbers
+
+values_2 <- ssr - val$SSR
+
+df2 <- data.frame(
+  edge = as.character(edge_numbers),
+  value = values_2
+)
+
+edge_labels <- sapply(
+  edge_numbers,
+  function(e) {
+    
+    edge_ends <- ends(G, e)
+
+    guild_id <- as.integer(
+      sub("Guild:", "", edge_ends[grep("^Guild:", edge_ends)])
+    )
+    
+    gear_id <- as.integer(
+      sub("Gear:", "", edge_ends[grep("^Gear:", edge_ends)])
+    )
+    
+    paste0("Edge ", e, " → ", guild_labels[guild_id], " + ", gear_labels[gear_id])
+  }
+)
+
+y_min <- min(
+  c(
+    df$ssr,
+    df2$value,
+    curves$SSR_change
+  ),
+  na.rm = TRUE
+)
+
+y_max <- max(
+  c(
+    df$ssr,
+    df2$value,
+    curves$SSR_change
+  ),
+  na.rm = TRUE
+)
+
+y_range <- y_max - y_min
+
+if (y_range == 0) {
+  y_range <- 1
+}
+
+
+y_max <- y_max + 0.05 * y_range
+y_min <- y_min - 0.05 * y_range
+
+
+p1 <- ggplot(
+  df,
+  aes(
+    x = name,
+    y = ssr
+  )
+) +
+  geom_col(
+    fill = "#2C7FB8",
+    width = 0.6
+  ) +
+  labs(
+    x = NULL,
+    y = "SSR / SSR change"
+  ) +
+  scale_y_continuous(
+    limits = c(
+      y_min,
+      y_max
+    ),
+    expand = c(
+      0,
+      0
+    )
+  ) +
+  theme_classic(
+    base_size = 14
+  )
+
+
+p2 <- ggplot(
+  df2,
+  aes(
+    x = edge,
+    y = value
+  )
+) +
+  geom_col(
+    fill = "#2C7FB8",
+    width = 0.6
+  ) +
+  labs(
+    x = "Edge",
+    y = NULL
+  ) +
+  scale_y_continuous(
+    limits = c(
+      y_min,
+      y_max
+    ),
+    expand = c(
+      0,
+      0
+    )
+  ) +
+  theme_classic(
+    base_size = 14
+  )
+
+p3 <- ggplot(
+  curves,
+  aes(
+    x = percentage,
+    y = SSR_change,
+    colour = Power
+  )
+) +
+  geom_hline(
+    yintercept = 0,
+    colour = "grey50",
+    linewidth = 0.6
+  ) +
+  geom_line(
+    linewidth = 1.1
+  ) +
+  labs(
+    x = "Power (% of original)",
+    y = NULL,
+    colour = "Power term"
+  ) +
+  scale_x_continuous(
+    limits = c(
+      0,
+      200
+    ),
+    breaks = seq(
+      0,
+      200,
+      25
+    )
+  ) +
+  scale_y_continuous(
+    limits = c(
+      y_min,
+      y_max
+    ),
+    expand = c(
+      0,
+      0
+    )
+  ) +
+  theme_classic(
+    base_size = 14
+  )
+
+if (length(edge_labels) > 0) {
+  
+  edge_legend_data <- data.frame(
+    Edge = edge_labels,
+    x = Inf,
+    y = Inf
+  )
+  
+  
+  p3 <- p3 +
+    geom_point(
+      data = edge_legend_data,
+      aes(
+        x = x,
+        y = y,
+        shape = Edge
+      ),
+      inherit.aes = FALSE,
+      alpha = 0
+    ) +
+    scale_shape_manual(
+      name = "Edges",
+      values = rep(
+        16,
+        length(edge_labels)
+      )
+    )
+}
+
+p3 <- p3 +
+  guides(
+    shape = guide_legend(
+      title = NULL,
+      ncol = 1,
+      byrow = TRUE,
+      order = 1
+    ),
+    colour = guide_legend(
+      title = "Power term",
+      ncol = 1,
+      byrow = TRUE,
+      order = 2
+    )
+  ) +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "vertical",
+    legend.box = "vertical"
+  )
+
+figure <- (p1 + p2 + p3) +
+  plot_layout(
+    ncol = 3,
+    axes = "collect",
+    guides = "collect"
+  ) &
+  theme(
+    legend.position = "bottom",
+    plot.margin = margin(5.5, 5.5, 20, 5.5)
+  )
+
+figure +
+  plot_annotation(
+    title = "Harvest Ratio Sensitivity Analysis",
+    theme = theme(
+      plot.title = element_text(
+        size = 18,
+        face = "bold",
+        hjust = 0.5
+      )
+    )
+  )
+
+
+```
+
+<br>
+
+The legend is partially cut off at the edge of the displayed figure. However, when you save the figure you keep the full legend.
+
+<br>
+<br>
+<br>
