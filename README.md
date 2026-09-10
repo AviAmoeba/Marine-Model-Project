@@ -2,7 +2,7 @@
 
 Author: Avinash Pothuri
 
-A computational pipeline for investigating whether specified harvest-ratio targets can be achieved within the StrathE2E2 ecosystem model by adjusting fishing-gear activity values.
+A computational pipeline developed in R for investigating whether specified harvest-ratio targets can be achieved within the StrathE2E2 ecosystem model by adjusting fishing-gear activity values.
 
 ## Overview
 
@@ -32,38 +32,26 @@ The project combines several approaches to investigate solution feasibility:
 
 ## Workflow
 
-StrathE2E2 Model
-       ↓
-Contribution Matrix
-       ↓
-Graph-Based Decomposition
-       ↓
-Remove Redundant Constraints
-       ↓
-Analytical / Exact Solutions
-       ↓
-Non-Negative Optimisation
-       ↓
-SSR & Solution Assessment
-       ↓
-Connectivity, Bridge & Sensitivity Analysis
-
+StrathE2E2 Model 
+|
+v
+Contribution Matrix | v Graph-Based Decomposition | v Remove Redundant Constraints | v Analytical / Exact Solutions | v Non-Negative Optimisation | v SSR & Solution Assessment | v Connectivity, Bridge & Sensitivity Analysis
 The final analysis brings these methods together to investigate how far the model is from an exact solution and which structural or parameter changes have the greatest potential to improve feasibility.
 
 ## R Packages
 
 The project is implemented in R and uses packages including:
 
-StrathE2E2
-igraph
-lpSolve
-nloptr
-nnls
-bvls
-ggplot2
-knitr
-patchwork
-Model
+- StrathE2E2
+- igraph
+- lpSolve
+- nloptr
+- nnls
+- bvls
+- ggplot2
+- knitr
+- patchwork
+- Model
 
 The examples use the North Sea StrathE2E2 model (2003–2013).
 
