@@ -32,15 +32,14 @@ The project combines several approaches to investigate solution feasibility:
 
 ## Workflow
 
-StrathE2E2 Model
-       ↓
-Contribution Matrix
-       ↓
-Graph-Based Decomposition
-       ↓
-Non-Negative Optimisation
-       ↓
-Sensitivity Analysis
+1. **StrathE2E2 Model**
+2. **Construct Contribution Matrix**
+3. **Graph-Based Decomposition**
+4. **Remove Redundant Constraints**
+5. **Solve Linear System**
+6. **Non-Negative Optimisation**
+7. **SSR & Solution Assessment**
+8. **Connectivity and Sensitivity Analysis**
 
 ## R Packages
 
